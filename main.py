@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import uvicorn
 
 from services.search import search_text, load_resources
 
@@ -70,3 +71,6 @@ def text_search(payload: TextSearchRequest):
     except Exception as e:
         print("[ERROR] search_text crashed:", e)
         raise HTTPException(status_code=500, detail=str(e))
+    
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
