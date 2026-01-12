@@ -1,0 +1,28 @@
+body {
+  width: 320px;
+  font-family: sans-serif;
+  padding: 10px;
+}
+
+input {
+  width: 100%;
+  padding: 6px;
+  margin-bottom: 6px;
+}
+
+button {
+  width: 100%;
+  padding: 6px;
+  cursor: pointer;
+}
+
+img {
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+
+.score {
+  font-size: 12px;
+  opacity: 0.7;
+}
