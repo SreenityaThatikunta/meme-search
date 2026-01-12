@@ -1,0 +1,31 @@
+# Web Framework
+fastapi==0.115.6
+uvicorn==0.40.0
+streamlit==1.43.2
+
+# Machine Learning / AI
+torch==2.9.1
+torchvision==0.24.1
+clip @ git+https://github.com/openai/CLIP.git
+
+# Vector Search
+faiss-cpu==1.9.0.post1
+# Note: Use faiss-gpu instead if you have CUDA support
+
+# OCR
+easyocr==1.7.4
+
+# Image Processing
+Pillow==12.1.0
+
+# Database
+pymongo==4.12.0
+
+# Data Processing
+numpy==2.2.6
+
+# HTTP Requests
+requests==2.33.0
+
+# Utilities
+pydantic==2.10.6
