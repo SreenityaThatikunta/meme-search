@@ -2,21 +2,33 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# System deps
+# -----------------------------
+# System dependencies
+# -----------------------------
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps
+# -----------------------------
+# Python dependencies
+# -----------------------------
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy code
-COPY . .
+# -----------------------------
+# Copy ONLY application code
+# -----------------------------
+COPY main.py .
+COPY services/ services/
+COPY data/id_map.json data/
 
-# Expose port
+# (Optional) if FAISS index is small enough (<200–300MB)
+# COPY data/text.index data/
+
+# -----------------------------
+# Expose & run
+# -----------------------------
 EXPOSE 8000
 
-# Run server
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

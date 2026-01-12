@@ -1,0 +1,22 @@
+# --- DATA ---
+data/images/
+data/images/images/
+data/*.jpg
+data/*.png
+
+# --- FAISS / LARGE FILES ---
+data/*.index
+data/*.pt
+
+# --- PYTHON ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- GIT ---
+.git
+.gitignore
+
+# --- VENV ---
+venv/
+.memenv/
