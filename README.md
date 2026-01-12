@@ -9,12 +9,14 @@ A semantic meme search engine powered by CLIP (Contrastive Language-Image Pre-tr
 - **Fast Similarity Search**: FAISS indexing for efficient similarity search
 - **OCR Support**: Extracts and indexes text from memes using EasyOCR
 - **Web Interface**: Clean Streamlit-based UI for easy searching
+- **Browser Extension**: Chrome extension for quick meme searches
 - **REST API**: FastAPI backend for programmatic access
 - **MongoDB Storage**: Stores meme metadata and extracted text
 
 ## Architecture
 
 - **Frontend**: Streamlit web application ([app.py](app.py))
+- **Browser Extension**: Chrome extension for quick searches (extension folder)
 - **Backend API**: FastAPI server ([main.py](main.py))
 - **Search Service**: CLIP + FAISS search implementation ([services/search.py](services/search.py))
 - **Data Processing Scripts**: Tools for embedding generation and OCR processing
@@ -95,6 +97,42 @@ streamlit run app.py
 
 The web interface will open in your browser (default: `http://localhost:8501`)
 
+## Browser Extension
+
+A browser extension is available for quick meme searches directly from your browser.
+
+### Important Notes
+
+**The backend is NOT deployed to a remote server.** You must run the backend API locally on your machine for the extension to work.
+
+### Setup Instructions
+
+1. **Start the Backend API First**:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+   The API must be running at `http://localhost:8000` before using the extension.
+
+2. **Load the Extension in Chrome**:
+   - Open your browser and navigate to `chrome://extensions/` (Chrome) 
+   - Enable "Developer mode" (toggle in the top right)
+   - Click "Load unpacked"
+   - Select the `extension/` folder from this project
+   - The extension icon should appear in your browser toolbar
+
+3. **Use the Extension**:
+   - Click the extension icon in your browser toolbar
+   - Enter a search query (e.g., "funny cat", "relatable", "programming meme")
+   - Browse results directly in the extension popup
+   - Make sure the backend API is running on `http://localhost:8000`
+
+### Extension Requirements
+
+- Backend API must be running locally at `http://localhost:8000`
+- MongoDB must be running with indexed meme data
+- All preprocessing scripts (scan, OCR, embedding) must have been run at least once
+
+
 ## API Endpoints
 
 ### POST /search/text
@@ -135,6 +173,11 @@ Search for memes using a text query.
 meme-search/
 ├── app.py                      # Streamlit frontend
 ├── main.py                     # FastAPI backend
+├── extension/                  # Browser extension
+│   ├── manifest.json          # Extension manifest
+│   ├── popup.html             # Extension popup UI
+│   ├── popup.js               # Extension logic
+│   └── styles.css             # Extension styles
 ├── services/
 │   └── search.py              # Search logic (CLIP + FAISS)
 ├── scripts/
@@ -143,7 +186,7 @@ meme-search/
 │   ├── scan_dataset.py        # Dataset scanning
 │   └── store_metadata.py      # Metadata storage
 ├── data/
-│   ├── memes/                 # Meme image files
+│   ├── images/                # Meme image files
 │   ├── text.index             # FAISS index
 │   └── id_map.json            # Vector ID to meme ID mapping
 └── memenv/                     # Virtual environment
