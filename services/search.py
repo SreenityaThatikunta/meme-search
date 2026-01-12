@@ -4,6 +4,7 @@ import torch
 import clip
 import numpy as np
 from pymongo import MongoClient
+import os
 
 DEVICE = "cpu"
 
@@ -56,10 +57,13 @@ def search_text(query, top_k=5):
             # Mongo + FAISS mismatch → skip safely
             continue
 
+        filename = os.path.basename(doc["image_path"])
+
         # NEVER mutate original doc in-place (good practice)
         result = {
             **doc,
-            "score": float(score)
+            "score": float(score),
+            "image_url": f"http://127.0.0.1:8000/images/{filename}"
         }
 
         results.append(result)
