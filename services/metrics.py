@@ -73,6 +73,67 @@ def precision_at_k(
     return sum(judgments.get(m, 0) >= threshold for m in top) / len(top)
 
 
+def cohen_kappa(a: Sequence[int], b: Sequence[int], weights: str = "none") -> float:
+    """Inter-annotator agreement between two graded judgment sets.
+
+    Raw agreement overstates reliability when one grade dominates: two
+    annotators who both label 80% of items "relevant" agree 80% of the time by
+    chance alone. Kappa subtracts that expected agreement.
+
+    Interpretation is conventional rather than exact: below 0.2 is poor, 0.4-0.6
+    moderate, 0.6-0.8 substantial, above 0.8 near-perfect.
+
+    Args:
+        a: One annotator's grades.
+        b: The other's, aligned item for item.
+        weights: ``"none"`` for standard kappa, which treats every disagreement
+            as equally wrong, or ``"quadratic"`` which penalises a 0-vs-2
+            disagreement far more than 1-vs-2. Grades here are ordinal, so
+            quadratic is usually the fairer reading.
+
+    Returns:
+        Kappa in ``[-1, 1]``. 1.0 is perfect agreement, 0.0 is chance-level, and
+        negative values mean worse than chance. Returns 1.0 when both annotators
+        used a single identical grade throughout, where kappa is otherwise
+        undefined.
+    """
+    if len(a) != len(b):
+        raise ValueError(f"judgment sets must align: {len(a)} vs {len(b)}")
+    if not a:
+        raise ValueError("cannot compute agreement over zero items")
+    if weights not in ("none", "quadratic"):
+        raise ValueError(f"weights must be 'none' or 'quadratic', got {weights!r}")
+
+    categories = sorted(set(a) | set(b))
+    total = len(a)
+    index = {label: position for position, label in enumerate(categories)}
+    size = len(categories)
+
+    observed = [[0.0] * size for _ in range(size)]
+    for first, second in zip(a, b, strict=True):
+        observed[index[first]][index[second]] += 1 / total
+
+    row_totals = [sum(row) for row in observed]
+    col_totals = [sum(observed[r][c] for r in range(size)) for c in range(size)]
+
+    def penalty(r: int, c: int) -> float:
+        if r == c:
+            return 0.0
+        if weights == "none" or size == 1:
+            return 1.0
+        return ((categories[r] - categories[c]) ** 2) / ((categories[-1] - categories[0]) ** 2)
+
+    disagreement = sum(penalty(r, c) * observed[r][c] for r in range(size) for c in range(size))
+    expected = sum(
+        penalty(r, c) * row_totals[r] * col_totals[c] for r in range(size) for c in range(size)
+    )
+
+    if expected == 0:
+        # Both annotators used one identical grade throughout.
+        return 1.0 if disagreement == 0 else 0.0
+    return 1.0 - disagreement / expected
+
+
 def summarise(
     rankings: Sequence[Sequence[str]],
     gold_ids: Sequence[str],

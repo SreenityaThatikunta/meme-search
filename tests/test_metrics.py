@@ -3,6 +3,7 @@
 import pytest
 
 from services.metrics import (
+    cohen_kappa,
     hit_at_k,
     ndcg_at_k,
     precision_at_k,
@@ -139,3 +140,57 @@ def test_graded_metrics_reject_non_positive_cutoffs(bad_k):
         ndcg_at_k(["a"], {"a": 2}, bad_k)
     with pytest.raises(ValueError, match="k must be"):
         precision_at_k(["a"], {"a": 2}, bad_k)
+
+
+# --- Inter-annotator agreement ---------------------------------------------
+
+
+def test_kappa_of_perfect_agreement_is_one():
+    assert cohen_kappa([0, 1, 2, 2], [0, 1, 2, 2]) == pytest.approx(1.0)
+
+
+def test_kappa_of_chance_level_agreement_is_about_zero():
+    # Annotator b is independent of a with the same marginal distribution.
+    a = [0, 0, 1, 1] * 10
+    b = [0, 1, 0, 1] * 10
+    assert cohen_kappa(a, b) == pytest.approx(0.0, abs=0.05)
+
+
+def test_kappa_is_negative_when_worse_than_chance():
+    assert cohen_kappa([0, 0, 1, 1], [1, 1, 0, 0]) < 0
+
+
+def test_kappa_discounts_agreement_from_a_dominant_class():
+    # 90% raw agreement, but almost all of it is the majority label.
+    a = [2] * 9 + [0]
+    b = [2] * 9 + [1]
+    assert cohen_kappa(a, b) < 0.9
+
+
+def test_quadratic_weighting_forgives_near_misses():
+    # Disagreeing 1-vs-2 is milder than disagreeing 0-vs-2.
+    near = cohen_kappa([2, 2, 1, 0], [2, 2, 2, 0], weights="quadratic")
+    far = cohen_kappa([2, 2, 0, 0], [2, 2, 2, 0], weights="quadratic")
+    assert near > far
+
+
+def test_quadratic_weighting_matches_plain_kappa_on_perfect_agreement():
+    judged = [0, 1, 2, 1, 0]
+    assert cohen_kappa(judged, judged, weights="quadratic") == pytest.approx(1.0)
+
+
+def test_kappa_is_one_when_both_annotators_used_a_single_grade():
+    # Undefined in the usual formula; defined here as perfect agreement.
+    assert cohen_kappa([2, 2, 2], [2, 2, 2]) == pytest.approx(1.0)
+
+
+def test_kappa_rejects_misaligned_or_empty_input():
+    with pytest.raises(ValueError, match="must align"):
+        cohen_kappa([0, 1], [0])
+    with pytest.raises(ValueError, match="zero items"):
+        cohen_kappa([], [])
+
+
+def test_kappa_rejects_an_unknown_weighting():
+    with pytest.raises(ValueError, match="weights must be"):
+        cohen_kappa([0], [0], weights="linear")

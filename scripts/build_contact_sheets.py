@@ -33,16 +33,22 @@ PAD = 6
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True)
+    parser.add_argument(
+        "--pool",
+        default=str(POOL_PATH),
+        help="pool file to render (default: the full relevance pool)",
+    )
     args = parser.parse_args()
+    pool_path = Path(args.pool)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not POOL_PATH.exists():
-        raise SystemExit(f"{POOL_PATH} not found. Run build_relevance_pool.py first.")
+    if not pool_path.exists():
+        raise SystemExit(f"{pool_path} not found. Run build_relevance_pool.py first.")
 
     by_query: dict[str, list[dict]] = defaultdict(list)
-    with open(POOL_PATH) as handle:
+    with open(pool_path) as handle:
         for line in handle:
             row = json.loads(line)
             by_query[row["query"]].append(row)
@@ -63,7 +69,8 @@ def main() -> None:
             y = PAD + line_no * (CELL + LABEL_H + PAD)
 
             draw.rectangle([x, y, x + CELL, y + LABEL_H], fill=(30, 30, 30))
-            draw.text((x + 8, y + 7), f"[{index + 1}]  {row['meme_id']}", fill=(255, 255, 255))
+            label = row.get("item", index + 1)
+            draw.text((x + 8, y + 7), f"[{label}]  {row['meme_id']}", fill=(255, 255, 255))
 
             try:
                 with Image.open(row["image_path"]) as img:
