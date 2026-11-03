@@ -1,7 +1,14 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 memenv/
+venv/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/
@@ -9,4 +16,5 @@ node_modules/
 # OS
 .DS_Store
 
+# Dataset images (~700 MB) are not committed; FAISS indexes and metadata are.
 data/images/

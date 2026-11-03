@@ -1,211 +1,284 @@
 # Meme Search Engine
 
-A semantic meme search engine powered by CLIP (Contrastive Language-Image Pre-training) and FAISS (Facebook AI Similarity Search). Search for memes using natural language queries and get relevant results based on both visual content and text extracted via OCR.
+Semantic meme search over ~7,000 memes. Type `monday morning` or `one does not simply`
+and get ranked results back in milliseconds — no tags, no filenames, no keyword matching.
 
-## Features
+Built on CLIP embeddings and FAISS, served by FastAPI, with a Streamlit UI and a Chrome
+extension as clients.
 
-- **Semantic Search**: Search memes using natural language queries
-- **CLIP-Powered**: Uses OpenAI's CLIP model for understanding image-text relationships
-- **Fast Similarity Search**: FAISS indexing for efficient similarity search
-- **OCR Support**: Extracts and indexes text from memes using EasyOCR
-- **Web Interface**: Clean Streamlit-based UI for easy searching
-- **Browser Extension**: Chrome extension for quick meme searches
-- **REST API**: FastAPI backend for programmatic access
-- **MongoDB Storage**: Stores meme metadata and extracted text
+[![CI](https://github.com/SreenityaThatikunta/meme-search/actions/workflows/ci.yml/badge.svg)](https://github.com/SreenityaThatikunta/meme-search/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Architecture
+## The problem
 
-- **Frontend**: Streamlit web application ([app.py](app.py))
-- **Browser Extension**: Chrome extension for quick searches (extension folder)
-- **Backend API**: FastAPI server ([main.py](main.py))
-- **Search Service**: CLIP + FAISS search implementation ([services/search.py](services/search.py))
-- **Data Processing Scripts**: Tools for embedding generation and OCR processing
-  - [scripts/embed_memes_fast.py](scripts/embed_memes_fast.py) - Generate CLIP embeddings for memes
-  - [scripts/run_ocr_fast.py](scripts/run_ocr_fast.py) - Extract text from memes
-  - [scripts/scan_dataset.py](scripts/scan_dataset.py) - Scan and index meme dataset
-  - [scripts/store_metadata.py](scripts/store_metadata.py) - Store metadata in MongoDB
+Memes are hard to search because the joke lives in two places at once: in the picture
+and in the caption burned into it. Filename search finds neither. So this project indexes
+both, separately, and lets the ranker blend them.
 
-## Prerequisites
+| Mode | What it matches | Wins on |
+|---|---|---|
+| `text` | CLIP embedding of OCR-extracted caption | "I remember the words" — `one does not simply` |
+| `image` | CLIP embedding of the image itself | "I remember the picture" — `surprised cat`, memes with stylised or unreadable text |
+| `hybrid` *(default)* | Weighted blend of both cosine scores | General queries, where the two signals disagree and agreement is a useful tiebreaker |
 
-- Python 3.12+
-- MongoDB (for metadata storage)
-- CUDA-compatible GPU (optional, for faster processing)
+Because CLIP maps text and images into one shared vector space, a *text* query can be
+compared directly against *image* embeddings. That is what makes `image` mode work without
+the user uploading a picture.
 
-## Installation
+## How it works
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd meme-search
+```mermaid
+flowchart LR
+    subgraph offline["Offline indexing pipeline"]
+        A[6,992 meme images] --> B[scan_dataset.py<br/>manifest + dimensions]
+        B --> C[run_ocr_fast.py<br/>EasyOCR + edge pre-filter]
+        C --> D[embed_memes_fast.py<br/>CLIP ViT-B/32]
+        D --> E[(text.index<br/>FAISS IP)]
+        D --> F[(image.index<br/>FAISS IP)]
+        D --> G[id_map.json<br/>vector_id to meme_id]
+        D --> H[store_metadata.py]
+        H --> I[(MongoDB<br/>meme metadata)]
+    end
+
+    subgraph online["Online search path"]
+        Q["Query: 'exam stress'"] --> R[CLIP text encoder]
+        R --> S{mode}
+        S -->|text| E
+        S -->|image| F
+        S -->|hybrid| E & F
+        E --> T[fuse_scores<br/>weighted cosine blend]
+        F --> T
+        T --> U[id_map lookup]
+        U --> V[Mongo hydration<br/>single batched query]
+        V --> W[Ranked JSON results]
+    end
+
+    G -.-> U
+    I -.-> V
 ```
 
-2. Create and activate a virtual environment:
+Both FAISS indexes are `IndexFlatIP` over L2-normalised 512-d vectors, so inner product
+*is* cosine similarity and the two indexes produce scores on the same `[-1, 1]` scale.
+That is precisely what makes hybrid fusion a simple weighted sum rather than a
+rank-normalisation problem — see [`services/fusion.py`](services/fusion.py).
+
+## Numbers
+
+| | |
+|---|---|
+| Memes indexed | 6,989 (3 of 6,992 source images were unreadable and skipped) |
+| OCR text recovered | 6,987 memes (99.97%), median 12 words |
+| Embedding | CLIP ViT-B/32, 512 dimensions |
+| Index type | FAISS `IndexFlatIP` — exact search, no recall loss |
+| Index size | 13.6 MB per index (two indexes: text + image) |
+| Metadata store | MongoDB, unique index on `meme_id` |
+| Test suite | 41 tests, runs in ~0.2s without a model or database |
+
+## Quickstart
+
+### 1. Install
+
 ```bash
-python -m venv memenv
-source memenv/bin/activate  # On Windows: memenv\Scripts\activate
+git clone https://github.com/SreenityaThatikunta/meme-search.git
 ```
 
-3. Install dependencies:
+```bash
+cd meme-search && python -m venv memenv && source memenv/bin/activate
+```
+
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Ensure MongoDB is running:
+### 2. Add the dataset
+
+The meme images are not in the repo (700 MB). Place them in `data/images/images/`.
+`data/labels.csv` holds the source dataset's original annotations (filenames, its own
+pre-extracted OCR text, sentiment labels); it is kept for provenance and is not read by
+the search path — this project runs its own OCR pass instead.
+
+The prebuilt FAISS indexes and `id_map.json` **are** committed, so if you only want to
+see search working you can skip step 3 entirely and go straight to loading metadata.
+
+### 3. Build the indexes (optional — prebuilt indexes are committed)
+
 ```bash
-# Default connection: mongodb://localhost:27017
+python scripts/scan_dataset.py && python scripts/run_ocr_fast.py && python scripts/embed_memes_fast.py
 ```
 
-## Usage
-
-### 1. Prepare Your Dataset
-
-Place your meme images in the `data/` directory.
-
-### 2. Process Memes
-
-Run the preprocessing scripts to extract text and generate embeddings:
+### 4. Load metadata into MongoDB
 
 ```bash
-# Scan and index the dataset
-python scripts/scan_dataset.py
-
-# Run OCR to extract text
-python scripts/run_ocr_fast.py
-
-# Generate CLIP embeddings
-python scripts/embed_memes_fast.py
-
-# Store metadata in MongoDB
 python scripts/store_metadata.py
 ```
 
-### 3. Start the Backend API
+This is idempotent — it upserts on `meme_id`, so re-running it will not duplicate rows.
+
+### 5. Run it
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --port 8000
 ```
-
-The API will be available at `http://localhost:8000`
-
-### 4. Launch the Frontend
-
-In a separate terminal:
 
 ```bash
 streamlit run app.py
 ```
 
-The web interface will open in your browser (default: `http://localhost:8501`)
+The API is at `http://localhost:8000` (interactive docs at `/docs`), the UI at
+`http://localhost:8501`. Check `GET /health` to confirm which indexes loaded and which
+modes are therefore available.
 
-## Browser Extension
+### Or use Docker
 
-A browser extension is available for quick meme searches directly from your browser.
-
-### Important Notes
-
-**The backend is NOT deployed to a remote server.** You must run the backend API locally on your machine for the extension to work.
-
-### Setup Instructions
-
-1. **Start the Backend API First**:
-   ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-   The API must be running at `http://localhost:8000` before using the extension.
-
-2. **Load the Extension in Chrome**:
-   - Open your browser and navigate to `chrome://extensions/` (Chrome) 
-   - Enable "Developer mode" (toggle in the top right)
-   - Click "Load unpacked"
-   - Select the `extension/` folder from this project
-   - The extension icon should appear in your browser toolbar
-
-3. **Use the Extension**:
-   - Click the extension icon in your browser toolbar
-   - Enter a search query (e.g., "funny cat", "relatable", "programming meme")
-   - Browse results directly in the extension popup
-   - Make sure the backend API is running on `http://localhost:8000`
-
-### Extension Requirements
-
-- Backend API must be running locally at `http://localhost:8000`
-- MongoDB must be running with indexed meme data
-- All preprocessing scripts (scan, OCR, embedding) must have been run at least once
-
-
-## API Endpoints
-
-### POST /search/text
-
-Search for memes using a text query.
-
-**Request Body:**
-```json
-{
-  "query": "funny cat meme",
-  "top_k": 5
-}
+```bash
+docker compose up --build
 ```
 
-**Response:**
+Brings up the API and MongoDB together, mounting `./data` read-only rather than baking a
+700 MB dataset into the image. You still need to run step 4 against the containerised Mongo.
+
+## API
+
+### `POST /search/text`
+
+```json
+{ "query": "exam stress", "top_k": 5, "mode": "hybrid", "text_weight": 0.5 }
+```
+
+| Field | Default | Notes |
+|---|---|---|
+| `query` | required | Natural language query |
+| `top_k` | `5` | 1–50 |
+| `mode` | `"hybrid"` | `text`, `image` or `hybrid` |
+| `text_weight` | `0.5` | Hybrid only: 0.0 ranks on appearance alone, 1.0 on caption alone |
+
+Response:
+
 ```json
 [
   {
-    "meme_id": "123",
-    "image_path": "data/memes/cat_meme.jpg",
-    "text": "i can has cheezburger",
-    "score": 0.876
+    "meme_id": "meme_000042",
+    "image_path": "data/images/images/image_107.jpg",
+    "image_url": "http://127.0.0.1:8000/images/image_107.jpg",
+    "ocr_text": "me studying the night before the exam",
+    "score": 0.2841
   }
 ]
 ```
 
+Scores are cosine similarities (or a weighted blend of two), so they are comparable
+*within* a result set but are not calibrated probabilities.
+
+### `GET /health`
+
+Reports whether the model loaded, how many vectors each index holds, whether MongoDB is
+reachable, and which modes can currently be served. Both clients use it to disable modes
+whose index is missing rather than failing at query time.
+
+## Chrome extension
+
+The backend is **not deployed** — it runs on your machine, so the extension needs the
+local API running first.
+
+1. Start the API: `uvicorn main:app --port 8000`
+2. Open `chrome://extensions/`, enable **Developer mode**
+3. **Load unpacked** → select the `meme-extension/` folder
+4. Click the toolbar icon, pick a mode, search
+
 ## Configuration
 
-- **API URL**: Update `API_URL` in [app.py](app.py:10) to point to your backend
-- **FAISS Index**: Stored at `./data/text.index`
-- **ID Mapping**: Stored at `./data/id_map.json`
-- **MongoDB**: Default connection to `mongodb://localhost:27017`, database: `meme_search`, collection: `memes`
-- **CLIP Model**: Uses `ViT-B/32` by default (configurable in [services/search.py](services/search.py:19))
+Everything is environment-driven with local defaults, so nothing needs editing to run
+locally and nothing needs editing to containerise. See [`config.py`](config.py).
 
-## Project Structure
+| Variable | Default | Purpose |
+|---|---|---|
+| `MEME_IMAGE_DIR` | `data/images/images` | Images served at `/images` |
+| `MEME_TEXT_INDEX` / `MEME_IMAGE_INDEX` | `data/text.index`, `data/image.index` | FAISS indexes |
+| `MEME_MONGO_URI` | `mongodb://localhost:27017` | Metadata store |
+| `MEME_PUBLIC_BASE_URL` | `http://127.0.0.1:8000` | Base for returned `image_url`s |
+| `MEME_DEVICE` | `cpu` | `cpu`, `mps` or `cuda` |
+| `MEME_HYBRID_TEXT_WEIGHT` | `0.5` | Default hybrid blend |
+| `MEME_CORS_ORIGINS` | `*` | Tighten before exposing the API |
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt && pytest
+```
+
+41 tests, ~0.2 seconds, no model download and no database required. The search module
+defers its `torch` / `clip` / `faiss` / `pymongo` imports to call time, which lets the
+suite substitute fake indexes and an in-memory collection
+([`tests/conftest.py`](tests/conftest.py)) and still cover the real ranking, id-mapping,
+hydration and HTTP error paths. The same property is why CI finishes in under a minute
+without installing PyTorch.
+
+Covered: fusion weighting and tie determinism, all three retrieval modes, `top_k`
+capping, FAISS `-1` padding, FAISS/Mongo drift, validation rejections, and the
+400/503/500 error contract.
+
+## Known limitations
+
+Worth being straight about these:
+
+- **No retrieval evaluation.** Ranking quality is assessed by eye. There is no labelled
+  query set, so there is no Recall@k or MRR to quote. This is the most valuable next step.
+- **Exact search won't scale.** `IndexFlatIP` is a brute-force scan — fine and lossless at
+  7k vectors, but it is O(n) per query. Past ~1M vectors this needs `IndexIVFFlat` or HNSW,
+  which trades a little recall for sublinear search.
+- **OCR is the pipeline's weak link.** EasyOCR struggles with heavy stylisation and
+  low-contrast captions, and the Canny edge pre-filter that speeds the pass up can skip a
+  genuinely text-bearing meme. Errors here propagate silently into the text index.
+- **`text_weight` is untuned.** 0.5 is a reasonable prior, not a measured optimum. Tuning
+  it needs the eval set above.
+- **Single process, in-memory indexes.** The model and both indexes load per worker, so
+  horizontal scaling multiplies memory rather than sharing it.
+- **Open CORS and no auth.** Fine for `localhost`; both need tightening before this is
+  exposed anywhere.
+
+## Roadmap
+
+1. Build a labelled query set and report Recall@k / MRR per mode — then tune `text_weight`
+   against it instead of guessing.
+2. Swap `IndexFlatIP` for `IndexIVFFlat` and quantify the recall/latency tradeoff.
+3. Cache query embeddings; repeat queries currently re-run the text encoder.
+4. Accept image queries (upload a meme, find similar) — the image index already supports it.
+5. Deploy the API so the extension works without a local server.
+
+## Architecture notes
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the data model, the two-phase
+pipeline, and why each component was chosen over the obvious alternative.
+
+## Project structure
 
 ```
 meme-search/
-├── app.py                      # Streamlit frontend
-├── main.py                     # FastAPI backend
-├── extension/                  # Browser extension
-│   ├── manifest.json          # Extension manifest
-│   ├── popup.html             # Extension popup UI
-│   ├── popup.js               # Extension logic
-│   └── styles.css             # Extension styles
+├── config.py                   # Env-driven configuration, single source of truth
+├── main.py                     # FastAPI app: /search/text, /health
+├── app.py                      # Streamlit UI
 ├── services/
-│   └── search.py              # Search logic (CLIP + FAISS)
+│   ├── search.py               # CLIP encoding, FAISS retrieval, Mongo hydration
+│   └── fusion.py               # Hybrid score fusion (dependency-free, unit tested)
 ├── scripts/
-│   ├── embed_memes_fast.py    # Embedding generation
-│   ├── run_ocr_fast.py        # OCR processing
-│   ├── scan_dataset.py        # Dataset scanning
-│   └── store_metadata.py      # Metadata storage
-├── data/
-│   ├── images/                # Meme image files
-│   ├── text.index             # FAISS index
-│   └── id_map.json            # Vector ID to meme ID mapping
-└── memenv/                     # Virtual environment
+│   ├── scan_dataset.py         # Images → manifest
+│   ├── run_ocr_fast.py         # EasyOCR with edge pre-filter, multiprocessed
+│   ├── embed_memes_fast.py     # CLIP → both FAISS indexes + id_map
+│   └── store_metadata.py       # Idempotent upsert into MongoDB
+├── meme-extension/             # Chrome extension (Manifest V3)
+├── tests/                      # 41 tests, no model or DB required
+├── docs/ARCHITECTURE.md
+├── data/                       # Indexes + metadata committed; images are not
+├── Dockerfile / docker-compose.yml
+└── .github/workflows/ci.yml    # ruff + pytest
 ```
 
-## How It Works
+## Stack
 
-1. **Preprocessing**: Memes are processed to extract text via OCR and generate visual embeddings using CLIP
-2. **Indexing**: Embeddings are stored in a FAISS index for fast similarity search
-3. **Search**: User queries are encoded using CLIP and compared against indexed embeddings
-4. **Retrieval**: Top-k most similar memes are retrieved and displayed with similarity scores
+CLIP (ViT-B/32) · FAISS · PyTorch · EasyOCR · FastAPI · Pydantic · MongoDB · Streamlit ·
+Chrome Manifest V3 · pytest · ruff · Docker
 
-## Technologies Used
+## License
 
-- **CLIP**: OpenAI's vision-language model
-- **FAISS**: Facebook's similarity search library
-- **FastAPI**: Modern Python web framework
-- **Streamlit**: Interactive web UI framework
-- **PyTorch**: Deep learning framework
-- **EasyOCR**: Text extraction from images
-- **MongoDB**: Document database for metadata
-- **Pillow**: Image processing
+MIT — see [LICENSE](LICENSE).

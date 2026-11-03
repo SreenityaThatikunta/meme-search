@@ -1,81 +1,107 @@
+"""Build the CLIP embedding indexes.
+
+Produces two FAISS inner-product indexes over L2-normalised 512-d CLIP vectors:
+
+* ``image.index`` - one vector per meme image.
+* ``text.index``  - one vector per meme's OCR text.
+
+Both share a single ``vector_id`` space, so one ``id_map.json`` resolves a hit
+from either index back to a ``meme_id``.
+"""
+
 import json
 import os
-import torch
-import clip
+import sys
+from pathlib import Path
+
 import faiss
 import numpy as np
-from PIL import Image
+import torch
+from PIL import Image, ImageFile
 from tqdm import tqdm
 
-# ---------------- CONFIG ----------------
-BATCH_SIZE = 32
-DEVICE = "mps"  # stable on macOS
-IN_FILE = "data/memes_ocr.jsonl"
-DATA_DIR = "data"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# ----------------------------------------
+import clip  # noqa: E402
 
-model, preprocess = clip.load("ViT-B/32", device=DEVICE)
-model.eval()
+import config  # noqa: E402 - needs the project root on sys.path first
 
-image_index = faiss.IndexFlatIP(512)
-text_index = faiss.IndexFlatIP(512)
-
-image_embs = []
-text_embs = []
-id_map = {}
-
-with open(IN_FILE) as f:
-    records = [json.loads(l) for l in f]
-
-from PIL import ImageFile
-
-# Allow loading truncated images
+# Some memes in public dumps are truncated; load what is there rather than fail.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-def load_image(path):
-    img = Image.open(path).convert("RGB")
-    img.thumbnail((512, 512))
-    return preprocess(img)
+BATCH_SIZE = int(os.getenv("MEME_BATCH_SIZE", "32"))
+# Thumbnail before preprocessing: CLIP resizes to 224px anyway, and this cuts
+# decode time substantially on large meme images.
+THUMBNAIL_SIZE = (512, 512)
+IN_FILE = config.DATA_DIR / "memes_ocr.jsonl"
 
-vector_id = 0
 
-for i in tqdm(range(0, len(records), BATCH_SIZE)):
-    batch = records[i:i+BATCH_SIZE]
+def main() -> None:
+    if not IN_FILE.exists():
+        raise SystemExit(f"{IN_FILE} not found. Run scripts/run_ocr_fast.py first.")
 
-    # ---- IMAGE EMBEDDINGS ----
-    imgs = torch.stack([load_image(r["image_path"]) for r in batch]).to(DEVICE)
-    with torch.no_grad():
-        img_emb = model.encode_image(imgs).cpu().numpy()
-    img_emb /= np.linalg.norm(img_emb, axis=1, keepdims=True)
+    device = config.DEVICE
+    print(f"[INFO] Loading {config.CLIP_MODEL} on {device}")
+    model, preprocess = clip.load(config.CLIP_MODEL, device=device)
+    model.eval()
 
-    # ---- TEXT EMBEDDINGS ----
-    texts = [r["text"]["ocr"] or "meme" for r in batch]
-    tokens = clip.tokenize(texts, truncate=True).to(DEVICE)
-    with torch.no_grad():
-        txt_emb = model.encode_text(tokens).cpu().numpy()
-    txt_emb /= np.linalg.norm(txt_emb, axis=1, keepdims=True)
+    def load_image(path: str) -> torch.Tensor:
+        img = Image.open(path).convert("RGB")
+        img.thumbnail(THUMBNAIL_SIZE)
+        return preprocess(img)
 
-    image_embs.append(img_emb)
-    text_embs.append(txt_emb)
+    with open(IN_FILE) as handle:
+        records = [json.loads(line) for line in handle]
 
-    for r in batch:
-        id_map[vector_id] = r["meme_id"]
-        r["vector_id"] = vector_id
-        vector_id += 1
+    image_batches, text_batches = [], []
+    id_map: dict[int, str] = {}
+    vector_id = 0
 
-# ---- ADD TO FAISS ONCE ----
-image_index.add(np.vstack(image_embs))
-text_index.add(np.vstack(text_embs))
+    for start in tqdm(range(0, len(records), BATCH_SIZE), desc="embedding"):
+        batch = records[start : start + BATCH_SIZE]
 
-faiss.write_index(image_index, os.path.join(DATA_DIR, "image.index"))
-faiss.write_index(text_index, os.path.join(DATA_DIR, "text.index"))
+        images = torch.stack([load_image(r["image_path"]) for r in batch]).to(device)
+        with torch.no_grad():
+            image_emb = model.encode_image(images).cpu().numpy().astype("float32")
+        image_emb /= np.linalg.norm(image_emb, axis=1, keepdims=True)
 
-with open(os.path.join(DATA_DIR, "id_map.json"), "w") as f:
-    json.dump(id_map, f)
+        # Empty OCR text would give a degenerate embedding, so fall back to a
+        # neutral token that at least places the meme in the right region.
+        texts = [r["text"]["ocr"] or "meme" for r in batch]
+        tokens = clip.tokenize(texts, truncate=True).to(device)
+        with torch.no_grad():
+            text_emb = model.encode_text(tokens).cpu().numpy().astype("float32")
+        text_emb /= np.linalg.norm(text_emb, axis=1, keepdims=True)
 
-with open("data/memes_final.jsonl", "w") as f:
-    for r in records:
-        f.write(json.dumps(r) + "\n")
+        image_batches.append(image_emb)
+        text_batches.append(text_emb)
 
-print("Fast embedding + indexing complete")
+        for record in batch:
+            id_map[vector_id] = record["meme_id"]
+            record["vector_id"] = vector_id
+            vector_id += 1
+
+    # Inner product over unit-norm vectors == cosine similarity.
+    image_index = faiss.IndexFlatIP(config.EMBEDDING_DIM)
+    text_index = faiss.IndexFlatIP(config.EMBEDDING_DIM)
+    image_index.add(np.vstack(image_batches))
+    text_index.add(np.vstack(text_batches))
+
+    faiss.write_index(image_index, str(config.IMAGE_INDEX_PATH))
+    faiss.write_index(text_index, str(config.TEXT_INDEX_PATH))
+
+    with open(config.ID_MAP_PATH, "w") as handle:
+        json.dump(id_map, handle)
+
+    with open(config.METADATA_PATH, "w") as handle:
+        for record in records:
+            handle.write(json.dumps(record) + "\n")
+
+    print(
+        f"[DONE] Indexed {vector_id} memes "
+        f"-> {config.TEXT_INDEX_PATH.name}, {config.IMAGE_INDEX_PATH.name}"
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,72 +1,108 @@
-import streamlit as st
-import requests
-from PIL import Image
+"""Streamlit front end for the meme search API."""
+
 import os
-from PIL import ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
+import requests
+import streamlit as st
 
-API_URL = "http://127.0.0.1:8000/search/text"
+API_BASE_URL = os.getenv("MEME_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+SEARCH_URL = f"{API_BASE_URL}/search/text"
+HEALTH_URL = f"{API_BASE_URL}/health"
+REQUEST_TIMEOUT = 30
+COLUMNS = 3
+
+MODE_HELP = {
+    "hybrid": "Blend both signals — best general-purpose ranking.",
+    "text": "Match the OCR text scraped off each meme.",
+    "image": "Match what the meme looks like, ignoring its caption.",
+}
 
 st.set_page_config(page_title="Meme Search", layout="wide")
-
 st.title("🧠 Meme Search Engine")
-st.caption("CLIP + FAISS powered semantic meme search")
+st.caption("Semantic meme retrieval with CLIP embeddings and FAISS")
 
-# -----------------------------
-# QUERY INPUT
-# -----------------------------
-query = st.text_input("Enter a text query", placeholder="spiderman, relatable, exams, etc.")
-top_k = st.slider("Number of results", 1, 20, 5)
 
-if st.button("Search") and query.strip():
-    with st.spinner("Searching memes..."):
-        resp = requests.post(
-            API_URL,
-            json={"query": query, "top_k": top_k},
-            timeout=10
-        )
+@st.cache_data(ttl=30)
+def fetch_health() -> dict:
+    """Ask the API which resources loaded, so the UI can offer valid modes."""
+    try:
+        response = requests.get(HEALTH_URL, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        return {"error": str(exc)}
 
-    if resp.status_code != 200:
-        st.error(f"API Error: {resp.text}")
+
+health = fetch_health()
+
+with st.sidebar:
+    st.header("Backend")
+    if "error" in health:
+        st.error(f"API unreachable at {API_BASE_URL}")
+        st.caption(health["error"])
+        st.code("uvicorn main:app --port 8000", language="bash")
     else:
-        results = resp.json()
+        st.success(f"Connected to {API_BASE_URL}")
+        st.metric("Indexed memes", f"{health.get('text_index_vectors', 0):,}")
+        st.caption(f"Model: {health.get('clip_model')} on {health.get('device')}")
+        if not health.get("mongo_connected"):
+            st.warning("MongoDB is not reachable; results cannot be hydrated.")
 
-        if len(results) == 0:
-            st.warning("No memes found 😕")
-        else:
-            cols = st.columns(3)
+available_modes = health.get("available_modes", ["hybrid", "text", "image"])
 
-            for i, meme in enumerate(results):
-                col = cols[i % 3]
+left, middle, right = st.columns([3, 1, 1])
+with left:
+    query = st.text_input("Search query", placeholder="spiderman, exam stress, monday morning...")
+with middle:
+    mode = st.selectbox("Mode", available_modes, help="How results are ranked")
+with right:
+    top_k = st.slider("Results", 1, 20, 6)
 
-                with col:
-                    # try:
-                    #     # st.write("DEBUG image_path:", meme["image_path"])
-                    #     img_path = os.path.join(PROJECT_ROOT, meme["image_path"])
-                    #     if not os.path.exists(img_path):
-                    #         st.error(f"File not found: {img_path}")
-                    #         continue
-                    #     img = Image.open(img_path)
-                    #     st.image(img, use_container_width=True)
-                    # except Exception:
-                    #     st.write("DEBUG PROJECT_ROOT:", PROJECT_ROOT)
-                    #     st.write("DEBUG image_path:", meme["image_path"])
-                    #     st.write("DEBUG resolved path:", img_path)
-                    #     st.write("DEBUG exists?:", os.path.exists(img_path))
-                    #     st.error("Image not found")
+text_weight = 0.5
+if mode == "hybrid":
+    text_weight = st.slider(
+        "OCR text weight",
+        0.0,
+        1.0,
+        0.5,
+        0.05,
+        help="0 = rank on appearance only, 1 = rank on caption text only",
+    )
 
-                    try:
-                        img_path = os.path.join(PROJECT_ROOT, meme["image_path"])
-                        img = Image.open(img_path).convert("RGB")
-                        st.image(img, use_column_width=True)
-                    except Exception as e:
-                        st.error(f"Failed to load image: {e}")
+st.caption(MODE_HELP.get(mode, ""))
 
-                    
+if st.button("Search", type="primary") and query.strip():
+    with st.spinner("Searching memes..."):
+        try:
+            response = requests.post(
+                SEARCH_URL,
+                json={
+                    "query": query,
+                    "top_k": top_k,
+                    "mode": mode,
+                    "text_weight": text_weight,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            st.error(f"Could not reach the API: {exc}")
+            st.stop()
 
-                    st.markdown(f"**Score:** `{meme['score']:.3f}`")
+    if response.status_code != 200:
+        st.error(f"API error {response.status_code}: {response.text}")
+        st.stop()
 
-                    if meme.get("text"):
-                        st.caption(meme["text"])
+    results = response.json()
+    if not results:
+        st.warning("No memes matched that query.")
+        st.stop()
+
+    columns = st.columns(COLUMNS)
+    for position, meme in enumerate(results):
+        with columns[position % COLUMNS]:
+            # Images come from the API's /images mount, so the UI needs no
+            # access to the dataset on disk.
+            st.image(meme["image_url"], use_container_width=True)
+            st.markdown(f"**Score:** `{meme['score']:.3f}`")
+            if meme.get("ocr_text"):
+                st.caption(meme["ocr_text"][:140])

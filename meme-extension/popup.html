@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Meme Search</title>
@@ -8,9 +8,17 @@
 <body>
   <h2>Meme Search</h2>
 
-  <input id="query" placeholder="spiderman, exams, relatable..." />
+  <div class="controls">
+    <input id="query" placeholder="spiderman, exams, relatable..." autofocus />
+    <select id="mode" title="Retrieval mode">
+      <option value="hybrid">Hybrid</option>
+      <option value="text">OCR text</option>
+      <option value="image">Image</option>
+    </select>
+  </div>
   <button id="search">Search</button>
 
+  <div id="status" role="status"></div>
   <div id="results"></div>
 
   <script src="popup.js"></script>

@@ -1,46 +1,81 @@
-const API_URL = "http://127.0.0.1:8000/search/text";
+const API_BASE_URL = "http://127.0.0.1:8000";
+const SEARCH_URL = `${API_BASE_URL}/search/text`;
+const TOP_K = 6;
 
-document.getElementById("search").addEventListener("click", async () => {
-  const query = document.getElementById("query").value.trim();
-  const resultsDiv = document.getElementById("results");
+const queryInput = document.getElementById("query");
+const modeSelect = document.getElementById("mode");
+const statusDiv = document.getElementById("status");
+const resultsDiv = document.getElementById("results");
 
+/** Render a short message above the results grid. */
+function setStatus(message, isError = false) {
+  statusDiv.textContent = message;
+  statusDiv.className = isError ? "error" : "";
+}
+
+/** Build the card for one ranked meme. */
+function renderMeme(meme) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  const img = document.createElement("img");
+  img.src = meme.image_url;
+  img.alt = meme.ocr_text || meme.meme_id;
+  img.loading = "lazy";
+
+  const score = document.createElement("div");
+  score.className = "score";
+  score.textContent = `Score: ${meme.score.toFixed(3)}`;
+
+  card.append(img, score);
+  return card;
+}
+
+async function runSearch() {
+  const query = queryInput.value.trim();
   resultsDiv.innerHTML = "";
 
-  if (!query) return;
+  if (!query) {
+    setStatus("Type something to search.");
+    return;
+  }
+
+  setStatus("Searching...");
 
   try {
-    const res = await fetch(API_URL, {
+    const response = await fetch(SEARCH_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: query,
-        top_k: 5
-      })
+        query,
+        top_k: TOP_K,
+        mode: modeSelect.value,
+      }),
     });
 
-    const data = await res.json();
-
-    if (data.length === 0) {
-      resultsDiv.innerText = "No memes found";
+    if (!response.ok) {
+      const detail = await response.text();
+      setStatus(`API error ${response.status}: ${detail}`, true);
       return;
     }
 
-    data.forEach(meme => {
-      const img = document.createElement("img");
-      img.src = meme.image_url || meme.image_path;
+    const memes = await response.json();
 
-      const score = document.createElement("div");
-      score.className = "score";
-      score.innerText = `Score: ${meme.score.toFixed(3)}`;
+    if (memes.length === 0) {
+      setStatus("No memes matched that query.");
+      return;
+    }
 
-      resultsDiv.appendChild(img);
-      resultsDiv.appendChild(score);
-    });
-
+    setStatus("");
+    memes.forEach((meme) => resultsDiv.appendChild(renderMeme(meme)));
   } catch (err) {
-    resultsDiv.innerText = "Error contacting server";
+    // The backend runs locally, so this is almost always "server not started".
+    setStatus(`Cannot reach the API at ${API_BASE_URL}. Is it running?`, true);
     console.error(err);
   }
+}
+
+document.getElementById("search").addEventListener("click", runSearch);
+queryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") runSearch();
 });

@@ -1,0 +1,24 @@
+# Brings up the API together with MongoDB. The dataset and FAISS indexes are
+# mounted from the host so the image stays small.
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  api:
+    build: .
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+    environment:
+      MEME_MONGO_URI: mongodb://mongo:27017
+      MEME_PUBLIC_BASE_URL: http://127.0.0.1:8000
+    volumes:
+      - ./data:/app/data:ro
+
+volumes:
+  mongo-data:
