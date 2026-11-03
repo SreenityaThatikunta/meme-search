@@ -173,13 +173,11 @@ centroid of the embedding space.
 
 ### Specific to the relevance set
 
-- **One annotator, and that annotator is an AI.** The 156 judgments in
-  `data/relevance_pool.jsonl` were made by Claude (recorded in each row's `judged_by`),
-  not by a human, and there is no second annotator. So there is **no inter-annotator
-  agreement figure**, and no check that these judgments match what a human would call
-  relevant. Treat them as a reproducible first pass, not as ground truth. To revise them:
-  regenerate the contact sheets, edit the `relevance` field in the pool file, and re-run
-  `scripts/evaluate_relevance.py` — no model or index needed.
+- **The judgments did not replicate.** The 156 judgments in
+  `data/relevance_pool.jsonl` were made by Claude (recorded in each row's `judged_by`), and
+  a second annotator on a 48-pair blind sample agreed at **kappa 0.140** — poor. The
+  relevance numbers are therefore one annotator's view, not a measured consensus. See the
+  agreement section above.
 - **Pooled nDCG is inflated in absolute terms.** The ideal ranking is drawn only from
   pooled documents, all contributed by the systems being compared, so a relevant meme that
   no configuration retrieved is invisible and counts against nobody. nDCG@5 0.896 means
@@ -190,10 +188,54 @@ centroid of the embedding space.
 - **16 queries is a small sample.** Differences of a point or two of nDCG — `w=0.1` versus
   `w=0.2`, for instance — are well inside the noise. No significance testing was done.
 
+## Inter-annotator agreement: the relevance judgments did not replicate
+
+A second annotator independently graded a blind 48-pair sample — three per query, with the
+first-pass grades withheld. **Agreement was poor.**
+
+| | |
+|---|---|
+| Items compared | 48 |
+| Exact agreement | 47.9% (23/48) |
+| Agreement within one grade | 75.0% |
+| **Cohen's kappa** | **0.140** (poor) |
+| Quadratic-weighted kappa | 0.091 (poor) |
+
+Confusion matrix (rows: first pass, columns: second annotator):
+
+| | irrelevant | partial | relevant |
+|---|---|---|---|
+| **irrelevant** | 4 | 1 | 4 |
+| **partial** | 2 | 4 | 5 |
+| **relevant** | 8 | 5 | 15 |
+
+A kappa of 0.14 is barely above chance. Raw agreement of 48% looks less alarming than it
+is: 48% of the pool is graded "relevant", so two annotators agree that often by labelling
+everything "relevant".
+
+**Consequence: treat every nDCG@5 and P@5 figure in Part 2 as indicative only.** They
+describe one annotator's notion of relevance, and a second annotator did not reproduce it.
+The relative ordering of modes may well survive — the gap between `text` (0.465) and
+`image` (0.884) is far larger than any plausible judgment noise — but the absolute values
+should not be quoted as quality measurements.
+
+**What Part 1 does not depend on.** The known-item evaluation uses the dataset's own
+human-corrected captions as ground truth, not these judgments. Recall@k, MRR, the modality
+gap finding and the `text_weight = 0.2` default all rest on that objective ground truth and
+are unaffected by this result. What is lost is the independent corroboration Part 2 was
+providing for the default, not the default itself.
+
+**One observation for anyone reading the raw data**, recorded because it bears on how to
+interpret the figure rather than to explain it away: 12 of the 25 disagreements are
+outright 0-vs-2 flips rather than arguments about the middle grade, and four items graded
+irrelevant by the second annotator have the query's own wording in their caption (item 38,
+*"even Dr Evil is taking public transit"*, graded irrelevant to `public transport`). Both
+grade sets are published as entered in `data/judgment_sample.csv` and
+`data/relevance_pool.jsonl`; recompute with `scripts/compare_judgments.py`.
+
 ## Re-judging the sample
 
-The biggest credibility gap above is that one AI annotator produced every judgment. The
-tooling to close it is in the repo: a 48-pair sample, blind, ready for a second annotator.
+The sample and tooling are in the repo and can be re-run with any annotator.
 
 ```bash
 python scripts/build_judgment_sample.py
@@ -221,8 +263,10 @@ should be treated as indicative only.
 
 ## Next
 
-1. **Judge the sample** (above) and publish the kappa next to the nDCG figures. Until that
-   exists, the relevance numbers have one annotator behind them and no agreement figure.
+1. **Adjudicate the 25 disagreements** item by item and settle a written relevance
+   guideline, then re-judge against it. Kappa 0.140 says the two annotators were not
+   applying the same standard; a guideline is how that gets fixed, and it is a precondition
+   for the relevance numbers meaning anything.
 2. **Grow the relevance set** past 16 queries so differences between neighbouring weights
    can be tested rather than eyeballed.
 3. **Fix the template-query failure.** The weakest queries name a visual template

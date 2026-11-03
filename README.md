@@ -97,8 +97,9 @@ code is [`services/fusion.py`](services/fusion.py).
 | Test suite | 87 tests, runs in ~0.3s without a model or database |
 | **Recall@10 / MRR** | **0.599 / 0.407** (1,000 known-item queries) |
 | — vs. OCR-text index alone | 0.351 / 0.262 — the original behaviour |
-| **nDCG@5 / P@5** | **0.896 / 0.675** (16 open-ended queries, 156 graded judgments) |
+| nDCG@5 / P@5 *(indicative only)* | 0.896 / 0.675 (16 open-ended queries) |
 | — vs. OCR-text index alone | 0.465 / 0.338 |
+| Judgment agreement (Cohen's κ) | **0.140 — poor**, so the two rows above are not quality measurements |
 | **Query latency (hybrid)** | **p50 ~29 ms, p95 ~36 ms** |
 | — of which FAISS search | 0.30 ms (both indexes, p50) |
 | — of which CLIP text encode | ~28 ms (p50) |
@@ -279,15 +280,19 @@ drift, validation rejections, and the 400/503/500 error contract.
 
 Worth being straight about these:
 
-- **The relevance judgments are AI-made and unvalidated.** The 156 graded judgments behind
-  nDCG@5 were made by Claude, not a human, with no second annotator and therefore no
-  inter-annotator agreement. They are a reproducible first pass, not ground truth. A blind
-  48-pair sample and the agreement tooling are in the repo to close this —
-  see [re-judging the sample](docs/EVALUATION.md#re-judging-the-sample).
-- **Absolute nDCG is optimistic.** Pooled judging draws the ideal ranking only from what
-  these systems retrieved, so 0.896 means "near-optimal ordering of what was found", not
-  "90% perfect". P@5 0.675 is the honest headline. The between-mode comparison is sound;
-  the absolute level is not.
+- **The relevance judgments did not replicate.** A second annotator graded a blind 48-pair
+  sample and agreed with the first pass at **Cohen's kappa 0.140 — poor**, barely above
+  chance. The nDCG@5 and P@5 figures therefore describe one annotator's notion of relevance
+  rather than a measured consensus, and should be read as indicative only. The large gap
+  between modes (0.465 for `text` vs 0.884 for `image`) is probably bigger than judgment
+  noise; the absolute values are not trustworthy. Both grade sets are published —
+  see [inter-annotator agreement](docs/EVALUATION.md#inter-annotator-agreement-the-relevance-judgments-did-not-replicate).
+- **This does not affect the known-item numbers.** Recall@k, MRR, the modality-gap finding
+  and the `text_weight = 0.2` default come from ground truth in the dataset's own
+  human-corrected captions, not from these judgments.
+- **Absolute nDCG is optimistic too.** Pooled judging draws the ideal ranking only from what
+  these systems retrieved, so 0.896 would mean "near-optimal ordering of what was found"
+  even if the judgments were solid.
 - **Small samples where it matters.** 16 open-ended queries cannot separate neighbouring
   blend weights; no significance testing was done. The known-item set (1,000 queries) also
   required a 10-word caption, so memes with little or no text are absent from it.
@@ -314,8 +319,9 @@ Worth being straight about these:
 
 Ordered by measured impact, not by what sounds impressive:
 
-1. **Judge the blind 48-pair sample** and publish Cohen's kappa beside the nDCG figures —
-   the tooling is ready; the numbers currently rest on one AI annotator.
+1. **Settle a written relevance guideline and re-judge.** Kappa 0.140 says the two
+   annotators were not applying the same standard, which is a precondition for the
+   open-ended numbers meaning anything.
 2. **Cache query embeddings.** The benchmark puts ~99% of latency in the CLIP text
    encoder, so an LRU cache on repeated queries is the single largest available win.
 3. **Accept image queries** (upload a meme, find similar) — the image index already
