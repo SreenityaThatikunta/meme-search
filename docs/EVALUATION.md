@@ -83,6 +83,78 @@ chosen for the best Recall@5 and Recall@10 — the metrics that matter for a res
 and for sitting mid-plateau rather than at its edge, which is more robust than the
 marginally higher MRR at `w=0.1`.
 
+## Part 2: open-ended relevance
+
+Known-item retrieval answers "find the meme whose caption went like this". It says
+nothing about "something relatable about Mondays", where many memes are acceptable
+answers. That needs graded relevance judgments.
+
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/build_relevance_pool.py
+python scripts/build_contact_sheets.py --out /tmp/sheets   # one sheet per query
+python scripts/evaluate_relevance.py
+```
+
+**Method.** 16 open-ended queries spanning four deliberately different kinds: mood
+(`monday morning`), topic (`programming bug`), visual/template (`surprised cat`, where
+the caption may say nothing useful), and phrase-like (`one does not simply`, where OCR
+text should matter most). Candidates are pooled TREC-style: the top 5 from each of five
+configurations, unioned, giving 156 query-meme pairs (9.8 per query). Each pair is graded
+**0 / 1 / 2** — irrelevant, partially relevant, relevant. Final distribution: 48% / 24% /
+28%.
+
+**Candidates are judged blind.** `build_relevance_pool.py` shuffles the pool with a fixed
+seed and records no system attribution, so the judge cannot tell which mode produced which
+candidate and cannot flatter a preferred system. The rankings are kept separately for
+scoring.
+
+### Results
+
+16 queries, nDCG@5 with exponential gain, P@5 counting only fully relevant results.
+
+| mode | nDCG@5 | P@5 |
+|---|---|---|
+| `text` (OCR only) | 0.465 | 0.338 |
+| `image` (visual only) | 0.884 | 0.637 |
+| RRF, `w=0.1` | 0.894 | 0.675 |
+| **RRF, `w=0.2`** *(current default)* | **0.896** | **0.675** |
+| RRF, `w=0.5` | 0.742 | 0.562 |
+
+**The two evaluations agree on the default.** This was not a given — the worry when tuning
+`text_weight` on known-item retrieval was that a task with one right answer per query would
+prefer a different weight from open-ended relevance. It does not: `w=0.2` wins both, and
+both penalise `w=0.5` and pure `text` the same way. The 0.2 default is therefore supported
+by two independent tasks rather than fitted to one.
+
+The image index also dominates here, just as it did on known-item retrieval (0.884 vs
+0.465), so that finding is not an artefact of queries having been derived from captions.
+
+### Where it fails
+
+Per-query nDCG@5 at the default, worst first:
+
+| nDCG@5 | query |
+|---|---|
+| 0.711 | pointing at a screen |
+| 0.744 | surprised cat |
+| 0.805 | this is fine |
+| 0.815 | food craving |
+| 0.844 | crying while smiling |
+| … | … |
+| 1.000 | awkward silence, exam stress, monday morning, one does not simply, public transport |
+
+The pattern is legible: the weakest queries name a **visual template or pose** rather than
+a subject. `this is fine` should return the dog in the burning room; it returns Disaster
+Girl and Bad Luck Brian — thematically adjacent calamity, but not the template asked for.
+`pointing at a screen` returns things that contain screens or pointing, rarely both. Six
+queries, mostly concrete subjects or exact phrases, score a perfect 1.000.
+
+Two incidental findings from judging: the dataset contains **near-duplicate memes**
+(`meme_002323` and `meme_003828` are the same image), and a handful of generic reaction
+memes act as **hubs** — `meme_003827` ("I'll be right back") was pooled for six unrelated
+queries and judged irrelevant for most, which is the signature of a vector close to the
+centroid of the embedding space.
+
 ## What these numbers do not establish
 
 - **This is known-item retrieval, not relevance.** Every query has exactly one correct
@@ -99,7 +171,32 @@ marginally higher MRR at `w=0.1`.
 - **Single dataset, single model.** 6,989 memes, CLIP ViT-B/32. None of this is known to
   transfer to a larger corpus or a different checkpoint.
 
+### Specific to the relevance set
+
+- **One annotator, and that annotator is an AI.** The 156 judgments in
+  `data/relevance_pool.jsonl` were made by Claude (recorded in each row's `judged_by`),
+  not by a human, and there is no second annotator. So there is **no inter-annotator
+  agreement figure**, and no check that these judgments match what a human would call
+  relevant. Treat them as a reproducible first pass, not as ground truth. To revise them:
+  regenerate the contact sheets, edit the `relevance` field in the pool file, and re-run
+  `scripts/evaluate_relevance.py` — no model or index needed.
+- **Pooled nDCG is inflated in absolute terms.** The ideal ranking is drawn only from
+  pooled documents, all contributed by the systems being compared, so a relevant meme that
+  no configuration retrieved is invisible and counts against nobody. nDCG@5 0.896 means
+  "near-optimal ordering of what these systems found", not "90% perfect". **P@5 is the
+  more interpretable figure: about two of every five top results are fully relevant, with
+  roughly another one partially so.** The comparison between modes is sound; the absolute
+  level is optimistic.
+- **16 queries is a small sample.** Differences of a point or two of nDCG — `w=0.1` versus
+  `w=0.2`, for instance — are well inside the noise. No significance testing was done.
+
 ## Next
 
-A human-judged relevance set of open-ended queries, so the two task types can be tuned
-against each other instead of one standing in for both. That is the honest remaining gap.
+1. **Human-validate the judgments.** Have a person re-judge the 156 pooled pairs, or a
+   sample of them, and report agreement with the current AI first pass. This is the single
+   biggest credibility gap in the numbers above.
+2. **Grow the relevance set** past 16 queries so differences between neighbouring weights
+   can be tested rather than eyeballed.
+3. **Fix the template-query failure.** The weakest queries name a visual template
+   (`this is fine`). Template identity is a different retrieval problem from subject
+   matter, and may want its own signal rather than a blend weight.
