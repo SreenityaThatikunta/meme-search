@@ -45,8 +45,16 @@ PUBLIC_BASE_URL = os.getenv("MEME_PUBLIC_BASE_URL", "http://127.0.0.1:8000").rst
 # --- Search behaviour ---
 DEFAULT_TOP_K = int(os.getenv("MEME_DEFAULT_TOP_K", "5"))
 MAX_TOP_K = int(os.getenv("MEME_MAX_TOP_K", "50"))
+# How to combine the two indexes' candidate lists: "rrf" (reciprocal rank
+# fusion, scale-free) or "sum" (weighted cosine sum). RRF is the default because
+# text-to-text and text-to-image cosines differ ~3x in magnitude, which makes a
+# weighted sum unstable; see docs/EVALUATION.md.
+FUSION_STRATEGY = os.getenv("MEME_FUSION_STRATEGY", "rrf")
+# RRF damping constant from the original paper.
+RRF_K = int(os.getenv("MEME_RRF_K", "60"))
 # Weight given to the OCR-text index when fusing hybrid results (0.0-1.0).
-# The image index receives the remaining weight.
-HYBRID_TEXT_WEIGHT = float(os.getenv("MEME_HYBRID_TEXT_WEIGHT", "0.5"))
+# The image index receives the remaining weight. 0.2 maximises Recall@5/@10 on
+# the known-item eval set; see docs/EVALUATION.md.
+HYBRID_TEXT_WEIGHT = float(os.getenv("MEME_HYBRID_TEXT_WEIGHT", "0.2"))
 # How many extra candidates to pull from each index before fusing.
 HYBRID_OVERSAMPLE = int(os.getenv("MEME_HYBRID_OVERSAMPLE", "4"))

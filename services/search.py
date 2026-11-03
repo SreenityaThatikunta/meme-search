@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import config
-from services.fusion import Candidate, dedupe_candidates, fuse_scores
+from services.fusion import Candidate, dedupe_candidates, fuse_ranks, fuse_scores
 
 logger = logging.getLogger(__name__)
 
@@ -230,11 +230,16 @@ def search(
     else:
         # Oversample each index so fusion has room to reorder before truncation.
         fetch_k = top_k * config.HYBRID_OVERSAMPLE
-        candidates = fuse_scores(
-            _query_index(_text_index, embedding, fetch_k),
-            _query_index(_image_index, embedding, fetch_k),
-            text_weight=text_weight,
-        )
+        text_hits = _query_index(_text_index, embedding, fetch_k)
+        image_hits = _query_index(_image_index, embedding, fetch_k)
+        if config.FUSION_STRATEGY == "rrf":
+            candidates = fuse_ranks(text_hits, image_hits, text_weight=text_weight, k=config.RRF_K)
+        elif config.FUSION_STRATEGY == "sum":
+            candidates = fuse_scores(text_hits, image_hits, text_weight=text_weight)
+        else:
+            raise ValueError(
+                f"FUSION_STRATEGY must be 'rrf' or 'sum', got {config.FUSION_STRATEGY!r}"
+            )
 
     candidates = candidates[:top_k]
     metadata = _fetch_metadata([meme_id for meme_id, _ in candidates])

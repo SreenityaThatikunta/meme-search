@@ -22,11 +22,33 @@ def test_image_mode_ranks_by_the_image_index(loaded_search):
 
 
 def test_hybrid_mode_blends_both_indexes(loaded_search):
-    results = search_service.search("exams", top_k=4, mode="hybrid", text_weight=0.5)
-    # meme_000001 scores 0.70 on text and 0.80 on image, so it wins on fusion
-    # despite meme_000000 leading the text index outright.
-    assert results[0]["meme_id"] == "meme_000001"
-    assert results[0]["score"] == pytest.approx(0.75)
+    results = search_service.search("exams", top_k=4, mode="hybrid")
+    # meme_000001 is rank 2 on text and rank 1 on image, so agreement across the
+    # two lists lifts it above meme_000000, which leads the text index outright.
+    assert [r["meme_id"] for r in results] == [
+        "meme_000001",
+        "meme_000000",
+        "meme_000003",
+        "meme_000002",
+    ]
+
+
+def test_hybrid_uses_the_configured_fusion_strategy(loaded_search, monkeypatch):
+    monkeypatch.setattr(config, "FUSION_STRATEGY", "sum")
+    summed = search_service.search("exams", top_k=1, mode="hybrid", text_weight=0.5)
+    # The weighted sum returns blended cosines, so the score is on the cosine scale.
+    assert summed[0]["score"] == pytest.approx(0.75)
+
+    monkeypatch.setattr(config, "FUSION_STRATEGY", "rrf")
+    ranked = search_service.search("exams", top_k=1, mode="hybrid", text_weight=0.5)
+    # RRF scores are reciprocal ranks, nowhere near the cosine scale.
+    assert ranked[0]["score"] < 0.05
+
+
+def test_unknown_fusion_strategy_is_rejected(loaded_search, monkeypatch):
+    monkeypatch.setattr(config, "FUSION_STRATEGY", "magic")
+    with pytest.raises(ValueError, match="FUSION_STRATEGY"):
+        search_service.search("exams", mode="hybrid")
 
 
 def test_hybrid_weight_shifts_the_winner(loaded_search):
