@@ -1,0 +1,24 @@
+# Open-ended relevance queries: many memes can be a good answer to each.
+# Deliberately mixed in kind, since the three retrieval modes should fail
+# differently across them.
+#
+# mood / feeling
+monday morning
+exam stress
+procrastination
+awkward silence
+gym motivation
+# topic
+programming bug
+food craving
+job interview
+online dating
+public transport
+# visual / template-driven, where the caption may say nothing useful
+surprised cat
+crying while smiling
+pointing at a screen
+two people arguing
+# phrase-like, where OCR text should matter most
+one does not simply
+this is fine

@@ -4,7 +4,8 @@ Dependency-free so the maths can be unit tested without a model, an index or a
 database — the same reason :mod:`services.fusion` is kept separate.
 """
 
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 
 
 def reciprocal_rank(ranked_ids: Sequence[str], gold_id: str) -> float:
@@ -24,6 +25,52 @@ def hit_at_k(ranked_ids: Sequence[str], gold_id: str, k: int) -> bool:
     if k < 1:
         raise ValueError(f"k must be >= 1, got {k}")
     return gold_id in ranked_ids[:k]
+
+
+def dcg(gains: Sequence[float]) -> float:
+    """Discounted cumulative gain of an ordered gain list."""
+    return sum(gain / math.log2(position + 1) for position, gain in enumerate(gains, 1))
+
+
+def ndcg_at_k(ranked_ids: Sequence[str], judgments: Mapping[str, int], k: int) -> float:
+    """Normalised DCG@k over graded relevance judgments.
+
+    Gains are exponential (``2**rel - 1``), the TREC convention, so a highly
+    relevant result is worth meaningfully more than a partially relevant one
+    rather than merely twice as much.
+
+    Documents absent from ``judgments`` score 0. With pooled judging that is the
+    standard assumption: a document no system retrieved is treated as
+    irrelevant.
+
+    Returns 0.0 when no relevant document exists for the query, so such queries
+    neither reward nor punish a system.
+    """
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got {k}")
+
+    gains = [2 ** judgments.get(meme_id, 0) - 1 for meme_id in ranked_ids[:k]]
+    ideal = sorted((2**rel - 1 for rel in judgments.values()), reverse=True)[:k]
+
+    best = dcg(ideal)
+    if best == 0:
+        return 0.0
+    return dcg(gains) / best
+
+
+def precision_at_k(
+    ranked_ids: Sequence[str],
+    judgments: Mapping[str, int],
+    k: int,
+    threshold: int = 2,
+) -> float:
+    """Fraction of the first ``k`` results judged at least ``threshold``."""
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got {k}")
+    top = ranked_ids[:k]
+    if not top:
+        return 0.0
+    return sum(judgments.get(m, 0) >= threshold for m in top) / len(top)
 
 
 def summarise(
