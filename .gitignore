@@ -18,3 +18,6 @@ node_modules/
 
 # Dataset images (~700 MB) are not committed; FAISS indexes and metadata are.
 data/images/
+
+# Contact sheets are regenerated from the pool by build_contact_sheets.py.
+sheets/
