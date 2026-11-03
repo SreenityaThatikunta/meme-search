@@ -1,14 +1,22 @@
 # Meme Search Engine
 
-Semantic meme search over ~7,000 memes. Type `monday morning` or `one does not simply`
-and get ranked results back in milliseconds — no tags, no filenames, no keyword matching.
-
-Built on CLIP embeddings and FAISS, served by FastAPI, with a Streamlit UI and a Chrome
-extension as clients.
+**Search 7,000 memes by meaning, not filenames — `monday morning` returns the right meme in ~30 ms.**
 
 [![CI](https://github.com/SreenityaThatikunta/meme-search/actions/workflows/ci.yml/badge.svg)](https://github.com/SreenityaThatikunta/meme-search/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+**Stack:** CLIP (ViT-B/32) · FAISS · PyTorch · EasyOCR · FastAPI · MongoDB · Streamlit ·
+Chrome Manifest V3 · pytest · ruff · Docker
+
+**Who it's for:** anyone sitting on a folder of thousands of untagged memes (or any image
+set with text in it) who wants to find one by describing it. As a reference
+implementation, it's for engineers who want a complete, working example of multimodal
+retrieval — CLIP embeddings, a vector index, score fusion and a serving layer — small
+enough to read end to end in an afternoon.
+
+> **Demo:** no hosted demo — the backend runs locally by design (see
+> [Quickstart](#quickstart)). A screenshot/GIF is the one thing still missing from this README.
 
 ## The problem
 
@@ -74,22 +82,51 @@ rank-normalisation problem — see [`services/fusion.py`](services/fusion.py).
 | Index size | 13.6 MB per index (two indexes: text + image) |
 | Metadata store | MongoDB, unique index on `meme_id` |
 | Test suite | 41 tests, runs in ~0.2s without a model or database |
+| **Query latency (hybrid)** | **p50 ~29 ms, p95 ~36 ms** |
+| — of which FAISS search | 0.30 ms (both indexes, p50) |
+| — of which CLIP text encode | ~28 ms (p50) |
+
+Measured on an Apple M2 Pro (10-core, CPU only, `OMP_NUM_THREADS=1`), 50 iterations over
+10 distinct queries against the real 6,989-vector indexes — reproduce with
+[`docs/benchmark.py`](docs/benchmark.py). Figures are the median of three runs; hybrid p50
+ranged 24–30 ms run to run, so treat them as an order of magnitude, not a guarantee.
+MongoDB hydration is excluded (it was not running on the benchmark host), so this is the
+retrieval path rather than full request time.
+
+**The interesting result:** the vector search is ~1% of the latency. Exact brute-force
+FAISS over 6,989 vectors costs 0.30 ms, while encoding the query with CLIP costs ~28 ms —
+roughly 95× more. Swapping in an approximate index would optimise the part that is already
+free. Caching query embeddings is the only change that would meaningfully move p50, which
+is why it outranks `IndexIVFFlat` on the roadmap below.
 
 ## Quickstart
+
+Four commands from clone to a running UI, assuming MongoDB is up and the images are in
+place (steps 2–3 below).
 
 ### 1. Install
 
 ```bash
-git clone https://github.com/SreenityaThatikunta/meme-search.git
+git clone https://github.com/SreenityaThatikunta/meme-search.git && cd meme-search
 ```
 
 ```bash
-cd meme-search && python -m venv memenv && source memenv/bin/activate
+python3.12 -m venv memenv && source memenv/bin/activate && pip install "setuptools<81" wheel
 ```
 
 ```bash
-pip install -r requirements.txt
+pip install --no-build-isolation -r requirements.txt
 ```
+
+> **Why the extra `setuptools` step:** OpenAI's CLIP package is installed from git and its
+> `setup.py` still imports `pkg_resources`, which setuptools removed in v81. On a fresh
+> Python 3.12+ environment a plain `pip install -r requirements.txt` therefore fails with
+> `ModuleNotFoundError: No module named 'pkg_resources'`. Pinning setuptools below 81 and
+> disabling build isolation makes the install reproducible.
+
+Optional: copy `.env.example` to `.env` as a reference for the available settings. The app
+reads real environment variables, not the file — `export` what you need, or pass them via
+`docker compose`.
 
 ### 2. Add the dataset
 
@@ -225,8 +262,11 @@ Worth being straight about these:
 - **No retrieval evaluation.** Ranking quality is assessed by eye. There is no labelled
   query set, so there is no Recall@k or MRR to quote. This is the most valuable next step.
 - **Exact search won't scale.** `IndexFlatIP` is a brute-force scan — fine and lossless at
-  7k vectors, but it is O(n) per query. Past ~1M vectors this needs `IndexIVFFlat` or HNSW,
-  which trades a little recall for sublinear search.
+  7k vectors (0.30 ms measured), but it is O(n) per query. Past ~1M vectors this needs
+  `IndexIVFFlat` or HNSW, which trades a little recall for sublinear search.
+- **The CLIP encoder is the latency floor.** ~28 of every 29 ms goes on encoding the query,
+  and that cost is fixed per request with no caching in place. Latency is also measured
+  on one machine with MongoDB excluded, so it is a retrieval figure, not an SLO.
 - **OCR is the pipeline's weak link.** EasyOCR struggles with heavy stylisation and
   low-contrast captions, and the Canny edge pre-filter that speeds the pass up can skip a
   genuinely text-bearing meme. Errors here propagate silently into the text index.
@@ -239,12 +279,17 @@ Worth being straight about these:
 
 ## Roadmap
 
-1. Build a labelled query set and report Recall@k / MRR per mode — then tune `text_weight`
-   against it instead of guessing.
-2. Swap `IndexFlatIP` for `IndexIVFFlat` and quantify the recall/latency tradeoff.
-3. Cache query embeddings; repeat queries currently re-run the text encoder.
-4. Accept image queries (upload a meme, find similar) — the image index already supports it.
-5. Deploy the API so the extension works without a local server.
+Ordered by measured impact, not by what sounds impressive:
+
+1. **Build a labelled query set** and report Recall@k / MRR per mode — then tune
+   `text_weight` against it instead of guessing. Nothing else can be judged without this.
+2. **Cache query embeddings.** The benchmark puts ~99% of latency in the CLIP text
+   encoder, so an LRU cache on repeated queries is the single largest available win.
+3. **Accept image queries** (upload a meme, find similar) — the image index already
+   supports this; it needs only an endpoint and the image preprocessing path.
+4. **Deploy the API** so the extension and a demo link work without a local server.
+5. **Revisit `IndexIVFFlat`** only past ~1M vectors. At current scale it would trade
+   exactness for a speedup on the 0.30 ms leg while leaving the ~28 ms leg untouched.
 
 ## Architecture notes
 
@@ -268,16 +313,14 @@ meme-search/
 │   └── store_metadata.py       # Idempotent upsert into MongoDB
 ├── meme-extension/             # Chrome extension (Manifest V3)
 ├── tests/                      # 41 tests, no model or DB required
-├── docs/ARCHITECTURE.md
+├── docs/
+│   ├── ARCHITECTURE.md         # Data model, pipeline, design tradeoffs
+│   └── benchmark.py            # Reproduces the latency figures above
 ├── data/                       # Indexes + metadata committed; images are not
+├── .env.example                # Every supported setting, with defaults
 ├── Dockerfile / docker-compose.yml
 └── .github/workflows/ci.yml    # ruff + pytest
 ```
-
-## Stack
-
-CLIP (ViT-B/32) · FAISS · PyTorch · EasyOCR · FastAPI · Pydantic · MongoDB · Streamlit ·
-Chrome Manifest V3 · pytest · ruff · Docker
 
 ## License
 
