@@ -190,11 +190,39 @@ centroid of the embedding space.
 - **16 queries is a small sample.** Differences of a point or two of nDCG — `w=0.1` versus
   `w=0.2`, for instance — are well inside the noise. No significance testing was done.
 
+## Re-judging the sample
+
+The biggest credibility gap above is that one AI annotator produced every judgment. The
+tooling to close it is in the repo: a 48-pair sample, blind, ready for a second annotator.
+
+```bash
+python scripts/build_judgment_sample.py
+python scripts/build_contact_sheets.py --pool data/judgment_sample.jsonl --out sheets/
+# fill the `relevance` column in data/judgment_sample.csv with 0, 1 or 2
+python scripts/compare_judgments.py
+```
+
+48 pairs, three per query so every query type is covered, grouped by query because a grade
+only means anything against the query it was judged for. **The first-pass grades are
+withheld from the CSV**, so the second annotator is not anchored by them; the sheet cell
+labels match the CSV's `item` column.
+
+`compare_judgments.py` reports exact agreement, agreement within one grade, Cohen's kappa
+(plain and quadratic-weighted — grades are ordinal, so a 1-vs-2 disagreement should not
+count the same as 0-vs-2), a confusion matrix, and every disagreeing item so the
+disagreement can be read rather than just counted. It needs no model, index or database.
+
+Read the result like this: raw agreement alone flatters any sample where one grade
+dominates — 48% of this pool is graded "relevant", so two annotators agree that often by
+chance. Kappa is the figure to quote. Conventionally, below 0.2 is poor, 0.4-0.6 moderate,
+0.6-0.8 substantial, above 0.8 near-perfect. A kappa in the moderate range or below would
+mean the nDCG figures above rest on one annotator's idiosyncratic notion of relevance and
+should be treated as indicative only.
+
 ## Next
 
-1. **Human-validate the judgments.** Have a person re-judge the 156 pooled pairs, or a
-   sample of them, and report agreement with the current AI first pass. This is the single
-   biggest credibility gap in the numbers above.
+1. **Judge the sample** (above) and publish the kappa next to the nDCG figures. Until that
+   exists, the relevance numbers have one annotator behind them and no agreement figure.
 2. **Grow the relevance set** past 16 queries so differences between neighbouring weights
    can be tested rather than eyeballed.
 3. **Fix the template-query failure.** The weakest queries name a visual template

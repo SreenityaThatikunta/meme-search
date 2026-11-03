@@ -94,7 +94,7 @@ code is [`services/fusion.py`](services/fusion.py).
 | Index type | FAISS `IndexFlatIP` — exact search, no recall loss |
 | Index size | 13.6 MB per index (two indexes: text + image) |
 | Metadata store | MongoDB, unique index on `meme_id` |
-| Test suite | 78 tests, runs in ~0.3s without a model or database |
+| Test suite | 87 tests, runs in ~0.3s without a model or database |
 | **Recall@10 / MRR** | **0.599 / 0.407** (1,000 known-item queries) |
 | — vs. OCR-text index alone | 0.351 / 0.262 — the original behaviour |
 | **nDCG@5 / P@5** | **0.896 / 0.675** (16 open-ended queries, 156 graded judgments) |
@@ -263,7 +263,7 @@ locally and nothing needs editing to containerise. See [`config.py`](config.py).
 pip install -r requirements-dev.txt && pytest
 ```
 
-78 tests, ~0.3 seconds, no model download and no database required. The search module
+87 tests, ~0.3 seconds, no model download and no database required. The search module
 defers its `torch` / `clip` / `faiss` / `pymongo` imports to call time, which lets the
 suite substitute fake indexes and an in-memory collection
 ([`tests/conftest.py`](tests/conftest.py)) and still cover the real ranking, id-mapping,
@@ -271,7 +271,8 @@ hydration and HTTP error paths. The same property is why CI finishes in under a 
 without installing PyTorch.
 
 Covered: both fusion strategies (including the modality-gap case that motivated RRF),
-all retrieval metrics (Recall@k, MRR, nDCG with exponential gain, P@k), all three modes, `top_k` capping, FAISS `-1` padding, FAISS/Mongo
+all retrieval metrics (Recall@k, MRR, nDCG with exponential gain, P@k, Cohen's kappa),
+all three modes, `top_k` capping, FAISS `-1` padding, FAISS/Mongo
 drift, validation rejections, and the 400/503/500 error contract.
 
 ## Known limitations
@@ -280,7 +281,9 @@ Worth being straight about these:
 
 - **The relevance judgments are AI-made and unvalidated.** The 156 graded judgments behind
   nDCG@5 were made by Claude, not a human, with no second annotator and therefore no
-  inter-annotator agreement. They are a reproducible first pass, not ground truth.
+  inter-annotator agreement. They are a reproducible first pass, not ground truth. A blind
+  48-pair sample and the agreement tooling are in the repo to close this —
+  see [re-judging the sample](docs/EVALUATION.md#re-judging-the-sample).
 - **Absolute nDCG is optimistic.** Pooled judging draws the ideal ranking only from what
   these systems retrieved, so 0.896 means "near-optimal ordering of what was found", not
   "90% perfect". P@5 0.675 is the honest headline. The between-mode comparison is sound;
@@ -311,8 +314,8 @@ Worth being straight about these:
 
 Ordered by measured impact, not by what sounds impressive:
 
-1. **Human-validate the relevance judgments** — currently an AI first pass with no
-   agreement figure, which is the biggest credibility gap in the numbers above.
+1. **Judge the blind 48-pair sample** and publish Cohen's kappa beside the nDCG figures —
+   the tooling is ready; the numbers currently rest on one AI annotator.
 2. **Cache query embeddings.** The benchmark puts ~99% of latency in the CLIP text
    encoder, so an LRU cache on repeated queries is the single largest available win.
 3. **Accept image queries** (upload a meme, find similar) — the image index already
@@ -338,7 +341,7 @@ meme-search/
 ├── services/
 │   ├── search.py               # CLIP encoding, FAISS retrieval, Mongo hydration
 │   ├── fusion.py               # Rank/score fusion (dependency-free, unit tested)
-│   └── metrics.py              # Recall@k, MRR, nDCG, P@k (dependency-free)
+│   └── metrics.py              # Recall@k, MRR, nDCG, P@k, kappa (dep-free)
 ├── scripts/
 │   ├── scan_dataset.py         # Images → manifest
 │   ├── run_ocr_fast.py         # EasyOCR with edge pre-filter, multiprocessed
@@ -348,9 +351,11 @@ meme-search/
 │   ├── evaluate_retrieval.py   # Recall@k / MRR per mode + blend-weight sweep
 │   ├── build_relevance_pool.py # Blind TREC-style pool for open-ended queries
 │   ├── build_contact_sheets.py # One sheet per query, for judging
-│   └── evaluate_relevance.py   # nDCG@5 / P@5 from graded judgments
+│   ├── evaluate_relevance.py   # nDCG@5 / P@5 from graded judgments
+│   ├── build_judgment_sample.py# Blind 48-pair sample for a 2nd annotator
+│   └── compare_judgments.py    # Agreement + Cohen's kappa between annotators
 ├── meme-extension/             # Chrome extension (Manifest V3)
-├── tests/                      # 78 tests, no model or DB required
+├── tests/                      # 87 tests, no model or DB required
 ├── docs/
 │   ├── ARCHITECTURE.md         # Data model, pipeline, design tradeoffs
 │   ├── EVALUATION.md           # Method, results, and what they do not show
