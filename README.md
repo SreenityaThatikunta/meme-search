@@ -67,9 +67,22 @@ flowchart LR
 ```
 
 Both FAISS indexes are `IndexFlatIP` over L2-normalised 512-d vectors, so inner product
-*is* cosine similarity and the two indexes produce scores on the same `[-1, 1]` scale.
-That is precisely what makes hybrid fusion a simple weighted sum rather than a
-rank-normalisation problem — see [`services/fusion.py`](services/fusion.py).
+*is* cosine similarity. It is tempting to conclude that the two scores are therefore
+comparable and can simply be added. **They cannot** — measured on this dataset,
+text-to-text cosines average 0.904 while text-to-image cosines average 0.307. The same
+nominal `[-1, 1]` range hides a ~3× difference in magnitude, which is CLIP's *modality
+gap*, so a weighted sum is dominated by the text index at nearly any weight.
+
+Hybrid fusion therefore combines **ranks, not scores** — weighted Reciprocal Rank Fusion,
+which is immune to scale:
+
+```
+score(meme) = w / (k + rank_text) + (1 − w) / (k + rank_image)     k = 60
+```
+
+That one change lifts Recall@10 from 0.397 to 0.599. The evidence, including the
+weighted-sum version it replaced, is in [docs/EVALUATION.md](docs/EVALUATION.md); the
+code is [`services/fusion.py`](services/fusion.py).
 
 ## Numbers
 
@@ -81,7 +94,9 @@ rank-normalisation problem — see [`services/fusion.py`](services/fusion.py).
 | Index type | FAISS `IndexFlatIP` — exact search, no recall loss |
 | Index size | 13.6 MB per index (two indexes: text + image) |
 | Metadata store | MongoDB, unique index on `meme_id` |
-| Test suite | 41 tests, runs in ~0.2s without a model or database |
+| Test suite | 65 tests, runs in ~0.3s without a model or database |
+| **Recall@10 / MRR** | **0.599 / 0.407** (1,000 known-item queries) |
+| — vs. OCR-text index alone | 0.351 / 0.262 — the original behaviour |
 | **Query latency (hybrid)** | **p50 ~29 ms, p95 ~36 ms** |
 | — of which FAISS search | 0.30 ms (both indexes, p50) |
 | — of which CLIP text encode | ~28 ms (p50) |
@@ -180,7 +195,7 @@ Brings up the API and MongoDB together, mounting `./data` read-only rather than 
 ### `POST /search/text`
 
 ```json
-{ "query": "exam stress", "top_k": 5, "mode": "hybrid", "text_weight": 0.5 }
+{ "query": "exam stress", "top_k": 5, "mode": "hybrid", "text_weight": 0.2 }
 ```
 
 | Field | Default | Notes |
@@ -188,7 +203,7 @@ Brings up the API and MongoDB together, mounting `./data` read-only rather than 
 | `query` | required | Natural language query |
 | `top_k` | `5` | 1–50 |
 | `mode` | `"hybrid"` | `text`, `image` or `hybrid` |
-| `text_weight` | `0.5` | Hybrid only: 0.0 ranks on appearance alone, 1.0 on caption alone |
+| `text_weight` | `0.2` | Hybrid only: 0.0 ranks on appearance alone, 1.0 on caption alone. Default measured, not guessed — see [EVALUATION.md](docs/EVALUATION.md) |
 
 Response:
 
@@ -235,7 +250,9 @@ locally and nothing needs editing to containerise. See [`config.py`](config.py).
 | `MEME_MONGO_URI` | `mongodb://localhost:27017` | Metadata store |
 | `MEME_PUBLIC_BASE_URL` | `http://127.0.0.1:8000` | Base for returned `image_url`s |
 | `MEME_DEVICE` | `cpu` | `cpu`, `mps` or `cuda` |
-| `MEME_HYBRID_TEXT_WEIGHT` | `0.5` | Default hybrid blend |
+| `MEME_HYBRID_TEXT_WEIGHT` | `0.2` | Default hybrid blend (measured) |
+| `MEME_FUSION_STRATEGY` | `rrf` | `rrf` (rank fusion) or `sum` (weighted cosines) |
+| `MEME_RRF_K` | `60` | RRF damping constant |
 | `MEME_CORS_ORIGINS` | `*` | Tighten before exposing the API |
 
 ## Tests
@@ -244,23 +261,26 @@ locally and nothing needs editing to containerise. See [`config.py`](config.py).
 pip install -r requirements-dev.txt && pytest
 ```
 
-41 tests, ~0.2 seconds, no model download and no database required. The search module
+65 tests, ~0.3 seconds, no model download and no database required. The search module
 defers its `torch` / `clip` / `faiss` / `pymongo` imports to call time, which lets the
 suite substitute fake indexes and an in-memory collection
 ([`tests/conftest.py`](tests/conftest.py)) and still cover the real ranking, id-mapping,
 hydration and HTTP error paths. The same property is why CI finishes in under a minute
 without installing PyTorch.
 
-Covered: fusion weighting and tie determinism, all three retrieval modes, `top_k`
-capping, FAISS `-1` padding, FAISS/Mongo drift, validation rejections, and the
-400/503/500 error contract.
+Covered: both fusion strategies (including the modality-gap case that motivated RRF),
+retrieval metric maths, all three modes, `top_k` capping, FAISS `-1` padding, FAISS/Mongo
+drift, validation rejections, and the 400/503/500 error contract.
 
 ## Known limitations
 
 Worth being straight about these:
 
-- **No retrieval evaluation.** Ranking quality is assessed by eye. There is no labelled
-  query set, so there is no Recall@k or MRR to quote. This is the most valuable next step.
+- **Evaluation covers known-item retrieval only.** 1,000 queries each have exactly one
+  correct answer ("find the meme whose caption went like this"). Open-ended relevance
+  ("something relatable about Mondays") is unmeasured, so MRR 0.41 does not mean 41% of
+  real searches are good. Eligibility also required a 10-word caption, so memes with
+  little or no text are absent from the eval — the very case the image index serves.
 - **Exact search won't scale.** `IndexFlatIP` is a brute-force scan — fine and lossless at
   7k vectors (0.30 ms measured), but it is O(n) per query. Past ~1M vectors this needs
   `IndexIVFFlat` or HNSW, which trades a little recall for sublinear search.
@@ -270,8 +290,8 @@ Worth being straight about these:
 - **OCR is the pipeline's weak link.** EasyOCR struggles with heavy stylisation and
   low-contrast captions, and the Canny edge pre-filter that speeds the pass up can skip a
   genuinely text-bearing meme. Errors here propagate silently into the text index.
-- **`text_weight` is untuned.** 0.5 is a reasonable prior, not a measured optimum. Tuning
-  it needs the eval set above.
+- **`text_weight` is tuned for one task.** 0.2 is optimal for known-item retrieval; an
+  open-ended relevance set could prefer another value, and the two are not reconciled.
 - **Single process, in-memory indexes.** The model and both indexes load per worker, so
   horizontal scaling multiplies memory rather than sharing it.
 - **Open CORS and no auth.** Fine for `localhost`; both need tightening before this is
@@ -281,8 +301,8 @@ Worth being straight about these:
 
 Ordered by measured impact, not by what sounds impressive:
 
-1. **Build a labelled query set** and report Recall@k / MRR per mode — then tune
-   `text_weight` against it instead of guessing. Nothing else can be judged without this.
+1. **A human-judged relevance set** of open-ended queries, so known-item retrieval and
+   general relevance can be tuned against each other rather than one standing in for both.
 2. **Cache query embeddings.** The benchmark puts ~99% of latency in the CLIP text
    encoder, so an LRU cache on repeated queries is the single largest available win.
 3. **Accept image queries** (upload a meme, find similar) — the image index already
@@ -295,6 +315,8 @@ Ordered by measured impact, not by what sounds impressive:
 
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the data model, the two-phase
 pipeline, and why each component was chosen over the obvious alternative.
+[`docs/EVALUATION.md`](docs/EVALUATION.md) has the retrieval numbers, the modality-gap
+finding that changed the ranker, and the limits of what was measured.
 
 ## Project structure
 
@@ -305,16 +327,20 @@ meme-search/
 ├── app.py                      # Streamlit UI
 ├── services/
 │   ├── search.py               # CLIP encoding, FAISS retrieval, Mongo hydration
-│   └── fusion.py               # Hybrid score fusion (dependency-free, unit tested)
+│   ├── fusion.py               # Rank/score fusion (dependency-free, unit tested)
+│   └── metrics.py              # Recall@k and MRR (dependency-free, unit tested)
 ├── scripts/
 │   ├── scan_dataset.py         # Images → manifest
 │   ├── run_ocr_fast.py         # EasyOCR with edge pre-filter, multiprocessed
 │   ├── embed_memes_fast.py     # CLIP → both FAISS indexes + id_map
-│   └── store_metadata.py       # Idempotent upsert into MongoDB
+│   ├── store_metadata.py       # Idempotent upsert into MongoDB
+│   ├── build_eval_set.py       # Known-item eval set from human-corrected captions
+│   └── evaluate_retrieval.py   # Recall@k / MRR per mode + blend-weight sweep
 ├── meme-extension/             # Chrome extension (Manifest V3)
-├── tests/                      # 41 tests, no model or DB required
+├── tests/                      # 65 tests, no model or DB required
 ├── docs/
 │   ├── ARCHITECTURE.md         # Data model, pipeline, design tradeoffs
+│   ├── EVALUATION.md           # Method, results, and what they do not show
 │   └── benchmark.py            # Reproduces the latency figures above
 ├── data/                       # Indexes + metadata committed; images are not
 ├── .env.example                # Every supported setting, with defaults

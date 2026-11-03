@@ -96,12 +96,37 @@ Each signal fails in a distinct way:
   visually identical templates carrying opposite captions are near-identical vectors.
 
 Since both indexes are `IndexFlatIP` over L2-normalised vectors, inner product equals
-cosine similarity, and both produce scores on the same `[-1, 1]` scale. Fusion is then an
-honest weighted sum rather than a rank-normalisation exercise:
+cosine similarity, and both scores sit in `[-1, 1]`. An earlier version of this project
+reasoned from there that fusion could be an honest weighted sum:
 
 ```
 fused(meme) = w · cos(query, ocr_text_emb) + (1 - w) · cos(query, image_emb)
 ```
+
+**That reasoning was wrong, and the evaluation caught it.** Sharing a nominal range is not
+the same as being comparable. Measured over 300 eval queries against the real indexes:
+
+| | mean | median | min | max |
+|---|---|---|---|---|
+| text index, top-1 cosine | 0.904 | 0.912 | 0.731 | 0.983 |
+| image index, top-1 cosine | 0.307 | 0.302 | 0.239 | 0.421 |
+
+Text-to-text similarities run ~3× larger than text-to-image ones — CLIP's **modality
+gap**, a direct consequence of the contrastive objective, which only ever pulls *matched*
+pairs together and never calibrates the two distributions against each other. In a
+weighted sum the text term therefore dominates at almost any weight, and the visible
+symptom was a cliff: Recall@10 fell from 0.592 at `w=0.2` to 0.406 at `w=0.3`, as the text
+magnitudes swamped the image ranking entirely.
+
+The fix is to fuse **positions instead of magnitudes** — weighted Reciprocal Rank Fusion:
+
+```
+fused(meme) = w / (k + rank_text(meme)) + (1 - w) / (k + rank_image(meme))     k = 60
+```
+
+Rank is scale-free, so the modality gap cannot distort it. The cliff disappears: Recall@10
+now holds near 0.59 across `w = 0.1 … 0.5`. `fuse_scores` is retained for same-modality
+blending and so the evaluation harness can keep measuring the alternative.
 
 A meme found by only one index keeps that index's weighted contribution and no more, so
 memes both views agree on rise naturally — agreement acts as a tiebreaker without any
@@ -174,6 +199,7 @@ to the caller.
 
 ## What this architecture does not do
 
-See **Known limitations** in the [README](../README.md#known-limitations) — chiefly that
-there is no retrieval evaluation, so `text_weight = 0.5` is a reasoned prior rather than a
-measured optimum.
+See **Known limitations** in the [README](../README.md#known-limitations) and the limits
+section of [EVALUATION.md](EVALUATION.md). In short: retrieval is now measured, but only
+for known-item queries on text-bearing memes, so `text_weight = 0.2` is optimal for that
+task rather than for open-ended relevance.
