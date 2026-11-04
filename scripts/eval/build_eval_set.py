@@ -67,7 +67,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if not LABELS_PATH.exists():
-        raise SystemExit(f"{LABELS_PATH} not found; it ships with the dataset.")
+        raise SystemExit(
+            f"{LABELS_PATH} not found. It ships with the source dataset rather than this "
+            "repo (see 'Add the dataset' in the README). You only need it to rebuild the "
+            "query set — data/eval_queries.jsonl is committed, so scripts/eval/"
+            "evaluate_retrieval.py reproduces the published numbers without it."
+        )
 
     basename_to_meme = load_metadata()
     rng = random.Random(args.seed)
