@@ -7,7 +7,7 @@ importantly — what they do **not** establish.
 Reproduce everything here with:
 
 ```bash
-python scripts/build_eval_set.py && KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/evaluate_retrieval.py
+python scripts/eval/build_eval_set.py && KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/eval/evaluate_retrieval.py
 ```
 
 ## Method
@@ -90,9 +90,9 @@ nothing about "something relatable about Mondays", where many memes are acceptab
 answers. That needs graded relevance judgments.
 
 ```bash
-KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/build_relevance_pool.py
-python scripts/build_contact_sheets.py --out /tmp/sheets   # one sheet per query
-python scripts/evaluate_relevance.py
+KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/eval/build_relevance_pool.py
+python scripts/eval/build_contact_sheets.py --out /tmp/sheets   # one sheet per query
+python scripts/eval/evaluate_relevance.py
 ```
 
 **Method.** 16 open-ended queries spanning four deliberately different kinds: mood
@@ -231,17 +231,17 @@ outright 0-vs-2 flips rather than arguments about the middle grade, and four ite
 irrelevant by the second annotator have the query's own wording in their caption (item 38,
 *"even Dr Evil is taking public transit"*, graded irrelevant to `public transport`). Both
 grade sets are published as entered in `data/judgment_sample.csv` and
-`data/relevance_pool.jsonl`; recompute with `scripts/compare_judgments.py`.
+`data/relevance_pool.jsonl`; recompute with `scripts/eval/compare_judgments.py`.
 
 ## Re-judging the sample
 
 The sample and tooling are in the repo and can be re-run with any annotator.
 
 ```bash
-python scripts/build_judgment_sample.py
-python scripts/build_contact_sheets.py --pool data/judgment_sample.jsonl --out sheets/
+python scripts/eval/build_judgment_sample.py
+python scripts/eval/build_contact_sheets.py --pool data/judgment_sample.jsonl --out sheets/
 # fill the `relevance` column in data/judgment_sample.csv with 0, 1 or 2
-python scripts/compare_judgments.py
+python scripts/eval/compare_judgments.py
 ```
 
 48 pairs, three per query so every query type is covered, grouped by query because a grade
@@ -260,6 +260,32 @@ chance. Kappa is the figure to quote. Conventionally, below 0.2 is poor, 0.4-0.6
 0.6-0.8 substantial, above 0.8 near-perfect. A kappa in the moderate range or below would
 mean the nDCG figures above rest on one annotator's idiosyncratic notion of relevance and
 should be treated as indicative only.
+
+## Latency
+
+Separate question from quality: what does a query cost? Reproduce with
+[`benchmark.py`](benchmark.py).
+
+| Stage | p50 | p95 |
+|---|---|---|
+| **Hybrid query, end to end** | **~29 ms** | **~36 ms** |
+| — CLIP text encode | ~28 ms | |
+| — FAISS search, both indexes | 0.30 ms | |
+
+Measured on an Apple M2 Pro (10-core, CPU only, `OMP_NUM_THREADS=1`), 50 iterations over
+10 distinct queries against the real 6,989-vector indexes. Figures are the median of three
+runs; hybrid p50 ranged 24–30 ms run to run, so treat them as an order of magnitude, not a
+guarantee. MongoDB hydration is excluded (it was not running on the benchmark host), so
+this is the retrieval path rather than full request time.
+
+**The interesting result:** vector search is ~1% of the latency. Exact brute-force FAISS
+over 6,989 vectors costs 0.30 ms, while encoding the query with CLIP costs ~28 ms —
+roughly 95× more.
+
+This reorders the obvious optimisations. Swapping in an approximate index (`IndexIVFFlat`,
+HNSW) is the standard advice for vector search, and here it would trade exactness for a
+speedup on the leg that is already free. Caching query embeddings is the only change that
+would meaningfully move p50, which is why it outranks the index swap on the roadmap.
 
 ## Next
 

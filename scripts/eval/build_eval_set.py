@@ -22,7 +22,7 @@ What this measures, and what it does not:
   ``text_weight`` must not be tuned to maximise a score on this set.
 
 Usage:
-    python scripts/build_eval_set.py [--queries 1000] [--window 6] [--seed 42]
+    python scripts/eval/build_eval_set.py [--queries 1000] [--window 6] [--seed 42]
 """
 
 import argparse
@@ -32,7 +32,7 @@ import random
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 

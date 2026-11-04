@@ -1,8 +1,8 @@
 # Architecture
 
 Design notes for the meme search engine: the data model, the two phases, and the
-reasoning behind each component choice. For setup and API usage see the
-[README](../README.md).
+reasoning behind each component choice. For setup see the [README](../README.md); for a
+plain-language explanation of the whole system first, read [OVERVIEW.md](OVERVIEW.md).
 
 ## Two phases
 
@@ -181,7 +181,7 @@ sequenceDiagram
     alt hybrid
         S->>F: search text.index (top_k × 4)
         S->>F: search image.index (top_k × 4)
-        S->>S: fuse_scores(), truncate to top_k
+        S->>S: fuse_ranks() (RRF, default), truncate to top_k
     else text or image
         S->>F: search one index (top_k)
     end
@@ -199,7 +199,7 @@ to the caller.
 
 ## What this architecture does not do
 
-See **Known limitations** in the [README](../README.md#known-limitations) and the limits
-section of [EVALUATION.md](EVALUATION.md). In short: retrieval is now measured, but only
+See [LIMITATIONS.md](LIMITATIONS.md) and the limits section of
+[EVALUATION.md](EVALUATION.md). In short: retrieval is now measured, but only
 for known-item queries on text-bearing memes, so `text_weight = 0.2` is optimal for that
 task rather than for open-ended relevance.

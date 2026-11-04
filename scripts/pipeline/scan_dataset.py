@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 

@@ -7,9 +7,9 @@ the disagreement can be inspected rather than just quantified.
 Needs no model, index or database.
 
 Usage:
-    python scripts/build_judgment_sample.py      # writes the blank CSV
+    python scripts/eval/build_judgment_sample.py      # writes the blank CSV
     # ... fill in the relevance column ...
-    python scripts/compare_judgments.py
+    python scripts/eval/compare_judgments.py
 """
 
 import argparse
@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 from services.metrics import cohen_kappa  # noqa: E402

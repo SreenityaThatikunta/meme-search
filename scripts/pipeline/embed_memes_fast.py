@@ -20,7 +20,7 @@ import torch
 from PIL import Image, ImageFile
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import clip  # noqa: E402
 
@@ -38,7 +38,7 @@ IN_FILE = config.DATA_DIR / "memes_ocr.jsonl"
 
 def main() -> None:
     if not IN_FILE.exists():
-        raise SystemExit(f"{IN_FILE} not found. Run scripts/run_ocr_fast.py first.")
+        raise SystemExit(f"{IN_FILE} not found. Run scripts/pipeline/run_ocr_fast.py first.")
 
     device = config.DEVICE
     print(f"[INFO] Loading {config.CLIP_MODEL} on {device}")

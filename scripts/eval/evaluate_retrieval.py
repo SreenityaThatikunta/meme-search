@@ -8,13 +8,13 @@ depth; every mode and every blend weight is then scored from those same
 candidate lists. The sweep is therefore nearly free.
 
 READ BEFORE TUNING: the eval set is built from each meme's own caption (see
-scripts/build_eval_set.py), so it structurally favours mode="text". A blend
+scripts/eval/build_eval_set.py), so it structurally favours mode="text". A blend
 weight chosen to maximise a score on this set would be overfitted to that
 construction, not to real queries. The sweep is published to expose that bias,
 not to pick a default.
 
 Usage:
-    KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/evaluate_retrieval.py
+    KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/eval/evaluate_retrieval.py
 """
 
 import argparse
@@ -28,7 +28,7 @@ import faiss
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 from services.fusion import dedupe_candidates, fuse_ranks, fuse_scores  # noqa: E402
@@ -46,7 +46,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not EVAL_PATH.exists():
-        raise SystemExit(f"{EVAL_PATH} not found. Run scripts/build_eval_set.py first.")
+        raise SystemExit(f"{EVAL_PATH} not found. Run scripts/eval/build_eval_set.py first.")
 
     with open(EVAL_PATH) as handle:
         queries = [json.loads(line) for line in handle]

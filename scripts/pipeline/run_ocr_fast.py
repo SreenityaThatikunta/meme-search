@@ -16,7 +16,7 @@ import cv2
 import easyocr
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 
@@ -64,7 +64,7 @@ def ocr_one(record: dict) -> dict:
 
 def main() -> None:
     if not IN_FILE.exists():
-        raise SystemExit(f"{IN_FILE} not found. Run scripts/scan_dataset.py first.")
+        raise SystemExit(f"{IN_FILE} not found. Run scripts/pipeline/scan_dataset.py first.")
 
     with open(IN_FILE) as handle:
         records = [json.loads(line) for line in handle]

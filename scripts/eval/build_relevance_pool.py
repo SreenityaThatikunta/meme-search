@@ -1,6 +1,6 @@
 """Pool candidates for open-ended relevance judging, blind.
 
-Known-item evaluation (scripts/build_eval_set.py) has one correct answer per
+Known-item evaluation (scripts/eval/build_eval_set.py) has one correct answer per
 query. Open-ended queries do not: many memes can legitimately answer "monday
 morning". Measuring those needs graded human judgments, which needs a candidate
 pool to judge.
@@ -15,7 +15,7 @@ produced a candidate, so judgments cannot flatter a favoured system. The
 system-to-candidate mapping is kept separately for scoring.
 
 Usage:
-    KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/build_relevance_pool.py
+    KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python scripts/eval/build_relevance_pool.py
 """
 
 import argparse
@@ -29,7 +29,7 @@ import faiss
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 from services.fusion import dedupe_candidates, fuse_ranks  # noqa: E402

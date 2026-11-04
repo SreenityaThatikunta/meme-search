@@ -69,7 +69,7 @@ def load_resources(require_image_index: bool = False) -> None:
         if not config.TEXT_INDEX_PATH.exists():
             raise FileNotFoundError(
                 f"Text index not found at {config.TEXT_INDEX_PATH}. "
-                "Run scripts/embed_memes_fast.py to build it."
+                "Run scripts/pipeline/embed_memes_fast.py to build it."
             )
         _text_index = faiss.read_index(str(config.TEXT_INDEX_PATH))
         logger.info("Loaded text index with %d vectors", _text_index.ntotal)
@@ -218,7 +218,7 @@ def search(
     if mode in ("image", "hybrid") and _image_index is None:
         raise ValueError(
             f"mode={mode!r} needs the image index, which is not loaded. "
-            "Build it with scripts/embed_memes_fast.py or use mode='text'."
+            "Build it with scripts/pipeline/embed_memes_fast.py or use mode='text'."
         )
 
     embedding = encode_query(query)

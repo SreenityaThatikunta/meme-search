@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pymongo import ASCENDING, MongoClient, UpdateOne
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 
@@ -20,7 +20,7 @@ BATCH_SIZE = 1000
 def main() -> None:
     if not config.METADATA_PATH.exists():
         raise SystemExit(
-            f"{config.METADATA_PATH} not found. Run scripts/embed_memes_fast.py first."
+            f"{config.METADATA_PATH} not found. Run scripts/pipeline/embed_memes_fast.py first."
         )
 
     client = MongoClient(config.MONGO_URI)

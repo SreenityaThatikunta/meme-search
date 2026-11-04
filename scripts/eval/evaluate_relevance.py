@@ -1,6 +1,6 @@
 """Score the open-ended relevance set: nDCG@5 and P@5 per mode.
 
-Complements scripts/evaluate_retrieval.py. That one measures known-item
+Complements scripts/eval/evaluate_retrieval.py. That one measures known-item
 retrieval (one correct answer per query); this one measures graded relevance on
 open-ended queries, where many memes can legitimately answer.
 
@@ -9,7 +9,7 @@ rankings recorded in data/relevance_systems.json, so it needs no model and no
 indexes — it runs anywhere, in a second.
 
 Usage:
-    python scripts/evaluate_relevance.py [--out results.json]
+    python scripts/eval/evaluate_relevance.py [--out results.json]
 """
 
 import argparse
@@ -19,7 +19,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 from services.metrics import ndcg_at_k, precision_at_k  # noqa: E402

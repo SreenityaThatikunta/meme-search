@@ -19,5 +19,11 @@ node_modules/
 # Dataset images (~700 MB) are not committed; FAISS indexes and metadata are.
 data/images/
 
-# Contact sheets are regenerated from the pool by build_contact_sheets.py.
+# Contact sheets are regenerated from the pool by scripts/eval/build_contact_sheets.py.
 sheets/
+
+# Personal interview-prep notes, not part of the published docs.
+docs/INTERVIEW_PREP.md
+
+# Superseded by docs/OVERVIEW.md + docs/INTERVIEW_PREP.md; safe to delete.
+TECHNICAL_DEEP_DIVE.md

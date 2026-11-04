@@ -12,11 +12,11 @@ candidates. Items stay grouped by query, since a relevance grade only means
 anything against the query it was judged for.
 
 Workflow:
-    1. python scripts/build_judgment_sample.py
-    2. python scripts/build_contact_sheets.py --pool data/judgment_sample.jsonl --out sheets/
+    1. python scripts/eval/build_judgment_sample.py
+    2. python scripts/eval/build_contact_sheets.py --pool data/judgment_sample.jsonl --out sheets/
     3. Fill the `relevance` column in data/judgment_sample.csv with 0, 1 or 2:
          0 = irrelevant, 1 = partially relevant, 2 = relevant
-    4. python scripts/compare_judgments.py
+    4. python scripts/eval/compare_judgments.py
 """
 
 import argparse
@@ -27,7 +27,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 

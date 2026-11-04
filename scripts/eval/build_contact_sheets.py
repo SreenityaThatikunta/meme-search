@@ -3,10 +3,10 @@
 Judging 156 pooled pairs one image at a time is slow and invites drift in the
 judge's standard. A contact sheet puts every candidate for one query side by
 side, so each query is judged in a single consistent pass, and the numbering
-lines up with the index printed by scripts/show_pool.py.
+lines up with each candidate's position in data/relevance_pool.jsonl.
 
 Usage:
-    python scripts/build_contact_sheets.py --out <dir>
+    python scripts/eval/build_contact_sheets.py --out <dir>
 """
 
 import argparse
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFile
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config  # noqa: E402 - needs the project root on sys.path first
 
