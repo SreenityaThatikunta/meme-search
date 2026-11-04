@@ -11,10 +11,22 @@
 ![The Streamlit UI returning memes for a text query](docs/images/demo.png)
 -->
 
+**Stack:** CLIP (ViT-B/32) · FAISS · PyTorch · EasyOCR · FastAPI · MongoDB · Streamlit ·
+Chrome Manifest V3 · pytest · ruff · Docker
+
 Memes are hard to search because the joke lives in two places at once: in the picture and
 in the caption burned into it. Filename search finds neither. This indexes both — CLIP
 embeddings of the image *and* of its OCR'd text, in two FAISS indexes — and blends the two
 rankings at query time.
+
+**Who it's for:** anyone sitting on a folder of thousands of untagged memes — or any image
+set with text in it — who wants to find one by describing it. As a reference
+implementation, it's for engineers who want a complete, working example of multimodal
+retrieval: CLIP embeddings, a vector index, rank fusion and a serving layer, small enough
+to read end to end in an afternoon.
+
+> **No hosted demo** — the backend runs locally by design, so the Chrome extension needs
+> your own API running. [Deploying it](docs/LIMITATIONS.md#roadmap) is on the roadmap.
 
 ## Three ways to search
 
@@ -27,6 +39,24 @@ rankings at query time.
 Because CLIP maps text and images into one shared vector space, a *text* query can be
 compared directly against *image* embeddings. That's what makes `image` mode work without
 uploading a picture.
+
+```mermaid
+flowchart LR
+    subgraph offline["Offline — once, minutes"]
+        A[6,992 images] --> B[EasyOCR] --> C[CLIP ViT-B/32]
+        C --> D[(text.index)]
+        C --> E[(image.index)]
+    end
+    subgraph online["Online — per query, ~29 ms"]
+        Q["query: exam stress"] --> R[CLIP text encoder] --> S[search both indexes]
+        S --> T[rank fusion] --> U[MongoDB hydrate] --> V[ranked JSON]
+    end
+    D -.-> S
+    E -.-> S
+```
+
+Full data model, request lifecycle and the reasoning behind each component choice are in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Results
 
