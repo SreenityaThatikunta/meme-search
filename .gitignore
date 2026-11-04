@@ -10,6 +10,9 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
+# Local agent/editor config; launch.json points at a machine-specific interpreter.
+.claude/
+
 # Node
 node_modules/
 
@@ -18,6 +21,10 @@ node_modules/
 
 # Dataset images (~700 MB) are not committed; FAISS indexes and metadata are.
 data/images/
+
+# Generated demo payload (~41 MB). Rebuild with scripts/demo/build_demo_subset.py;
+# the Hugging Face Space repo carries it, this one carries the builder.
+demo/data/
 
 # Contact sheets are regenerated from the pool by scripts/eval/build_contact_sheets.py.
 sheets/

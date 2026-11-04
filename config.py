@@ -26,7 +26,14 @@ IMAGE_INDEX_PATH = _path("MEME_IMAGE_INDEX", "data/image.index")
 ID_MAP_PATH = _path("MEME_ID_MAP", "data/id_map.json")
 METADATA_PATH = _path("MEME_METADATA", "data/memes_final.jsonl")
 
-# --- MongoDB ---
+# --- Metadata store ---
+# Where the search path reads image paths and captions from: "mongo" (default)
+# or "jsonl", which reads METADATA_PATH into memory and needs no database. The
+# jsonl backend suits read-only deployments where metadata never changes after
+# the indexes are built; see services/metadata.py.
+METADATA_BACKEND = os.getenv("MEME_METADATA_BACKEND", "mongo")
+
+# --- MongoDB (used when METADATA_BACKEND == "mongo") ---
 MONGO_URI = os.getenv("MEME_MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MEME_MONGO_DB", "meme_search")
 MONGO_COLLECTION = os.getenv("MEME_MONGO_COLLECTION", "memes")

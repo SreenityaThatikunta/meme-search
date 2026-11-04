@@ -17,7 +17,8 @@ or pass them via `docker compose`.
 | `MEME_IMAGE_INDEX` | `data/image.index` | FAISS index of image embeddings |
 | `MEME_ID_MAP` | `data/id_map.json` | Vector row number → meme id |
 | `MEME_METADATA` | `data/memes_final.jsonl` | Source for the MongoDB load |
-| `MEME_MONGO_URI` | `mongodb://localhost:27017` | Metadata store |
+| `MEME_METADATA_BACKEND` | `mongo` | `mongo`, or `jsonl` to read metadata from a file and skip the database entirely |
+| `MEME_MONGO_URI` | `mongodb://localhost:27017` | Metadata store (when the backend is `mongo`) |
 | `MEME_MONGO_DB` | `meme_search` | Database name |
 | `MEME_MONGO_COLLECTION` | `memes` | Collection name |
 | `MEME_CLIP_MODEL` | `ViT-B/32` | CLIP variant; must match what built the indexes |
@@ -34,6 +35,25 @@ or pass them via `docker compose`.
 | `MEME_CORS_ORIGINS` | `*` | Comma-separated allowlist. **Tighten before exposing the API** |
 | `MEME_LOG_LEVEL` | `INFO` | Standard Python log levels |
 | `MEME_API_BASE_URL` | `http://127.0.0.1:8000` | Read by the Streamlit UI to find the API |
+| `MEME_SEARCH_MODE` | `http` | `http` (UI calls the API) or `local` (UI runs search in-process) |
+| `MEME_DEMO_SUBSET` | unset | `1` shows the "searching a subset" banner in the UI |
+
+## Running without MongoDB
+
+`MEME_METADATA_BACKEND=jsonl` reads `memes_final.jsonl` into memory instead of querying a
+database. The search path cannot tell the difference — it asks the store for many documents
+by `meme_id` in one call, and both backends answer that identically.
+
+It suits any read-only deployment, where metadata never changes after the indexes are
+built. Mongo remains the default and the right choice when you want to correct or reload
+metadata independently of the embeddings, which is the point of keeping them apart.
+
+```bash
+MEME_METADATA_BACKEND=jsonl uvicorn main:app --port 8000
+```
+
+Combined with `MEME_SEARCH_MODE=local`, this is what the hosted demo runs: one Streamlit
+process, no API, no database. See [../demo/DEPLOY.md](../demo/DEPLOY.md).
 
 ## Two settings worth understanding
 

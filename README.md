@@ -6,10 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-<!-- SCREENSHOT: save a shot or GIF of the Streamlit UI to docs/images/demo.png,
-     then uncomment the line below. It's the highest-value thing missing from this page.
-![The Streamlit UI returning memes for a text query](docs/images/demo.png)
--->
+![The Streamlit UI returning Monday-morning memes for a hybrid-mode query](docs/images/demo.png)
 
 **Stack:** CLIP (ViT-B/32) · FAISS · PyTorch · EasyOCR · FastAPI · MongoDB · Streamlit ·
 Chrome Manifest V3 · pytest · ruff · Docker
@@ -25,8 +22,11 @@ implementation, it's for engineers who want a complete, working example of multi
 retrieval: CLIP embeddings, a vector index, rank fusion and a serving layer, small enough
 to read end to end in an afternoon.
 
-> **No hosted demo** — the backend runs locally by design, so the Chrome extension needs
-> your own API running. [Deploying it](docs/LIMITATIONS.md#roadmap) is on the roadmap.
+> **Try it without the full setup:** `demo/` builds a 400-meme subset that runs as a single
+> Streamlit process — no API, no MongoDB, no 700 MB download. See
+> [demo/DEPLOY.md](demo/DEPLOY.md), which also covers putting it on a free Hugging Face
+> Space. The main API is not currently hosted, so the Chrome extension needs your own
+> server running.
 
 ## Three ways to search
 
@@ -166,10 +166,13 @@ meme-search/
 ├── config.py              # Env-driven configuration, single source of truth
 ├── main.py                # FastAPI: POST /search/text, GET /health
 ├── app.py                 # Streamlit UI
-├── services/              # search.py (query path), fusion.py (ranking), metrics.py (eval)
+├── services/              # search.py (query path), fusion.py (ranking),
+│                          # metadata.py (Mongo or JSONL), metrics.py (eval)
 ├── scripts/
 │   ├── pipeline/          # Builds the product: scan → OCR → embed → store
-│   └── eval/              # Produces the numbers only; nothing here runs at query time
+│   ├── eval/              # Produces the numbers only; nothing here runs at query time
+│   └── demo/              # Carves out the subset the hosted demo serves
+├── demo/                  # Hugging Face Space: entry point, deps, deploy guide
 ├── meme-extension/        # Chrome extension (Manifest V3)
 ├── tests/                 # 87 tests, no model or DB required
 ├── docs/                  # See below

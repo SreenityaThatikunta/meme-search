@@ -58,7 +58,6 @@ def load_resources(require_image_index: bool = False) -> None:
 
     import clip  # noqa: PLC0415 - deliberately deferred, see module docstring
     import faiss  # noqa: PLC0415
-    from pymongo import MongoClient  # noqa: PLC0415
 
     if _model is None:
         logger.info("Loading CLIP model %s on %s", config.CLIP_MODEL, config.DEVICE)
@@ -94,8 +93,30 @@ def load_resources(require_image_index: bool = False) -> None:
         logger.info("Loaded id map with %d entries", len(_id_map))
 
     if _collection is None:
+        _collection = _open_metadata_store()
+
+
+def _open_metadata_store():
+    """Open the configured metadata store.
+
+    ``mongo`` is the default and keeps ``pymongo`` out of the import path for
+    anyone running the ``jsonl`` backend, which needs no database at all.
+    """
+    backend = config.METADATA_BACKEND
+    if backend == "jsonl":
+        from services.metadata import JsonlCollection  # noqa: PLC0415
+
+        store = JsonlCollection(config.METADATA_PATH)
+        logger.info("Loaded metadata for %d memes from %s", len(store), config.METADATA_PATH)
+        return store
+
+    if backend == "mongo":
+        from pymongo import MongoClient  # noqa: PLC0415
+
         client = MongoClient(config.MONGO_URI, serverSelectionTimeoutMS=3000)
-        _collection = client[config.MONGO_DB][config.MONGO_COLLECTION]
+        return client[config.MONGO_DB][config.MONGO_COLLECTION]
+
+    raise ValueError(f"MEME_METADATA_BACKEND must be 'mongo' or 'jsonl', got {backend!r}")
 
 
 def available_modes() -> tuple[str, ...]:
@@ -107,14 +128,22 @@ def available_modes() -> tuple[str, ...]:
 
 def health() -> dict[str, Any]:
     """Readiness snapshot, used by the ``/health`` endpoint."""
-    mongo_ok = False
-    mongo_error = None
-    if _collection is not None:
+    backend = config.METADATA_BACKEND
+    store_ok = False
+    store_error = None
+
+    if _collection is None:
+        store_error = "metadata store not loaded"
+    elif backend == "jsonl":
+        # Loading the file is the readiness check: JsonlCollection raises on a
+        # missing file, so a non-None store is a reachable one.
+        store_ok = True
+    else:
         try:
             _collection.database.client.admin.command("ping")
-            mongo_ok = True
+            store_ok = True
         except Exception as exc:  # pragma: no cover - depends on live Mongo
-            mongo_error = str(exc)
+            store_error = str(exc)
 
     return {
         "model_loaded": _model is not None,
@@ -123,8 +152,12 @@ def health() -> dict[str, Any]:
         "text_index_vectors": _text_index.ntotal if _text_index is not None else 0,
         "image_index_vectors": _image_index.ntotal if _image_index is not None else 0,
         "id_map_entries": len(_id_map) if _id_map is not None else 0,
-        "mongo_connected": mongo_ok,
-        "mongo_error": mongo_error,
+        "metadata_backend": backend,
+        "metadata_connected": store_ok,
+        "metadata_error": store_error,
+        # Retained under the old keys so existing clients keep working.
+        "mongo_connected": store_ok,
+        "mongo_error": store_error,
         "available_modes": list(available_modes()),
     }
 

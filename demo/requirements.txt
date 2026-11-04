@@ -1,0 +1,20 @@
+# Serve-time dependencies only. The demo runs search, not the indexing pipeline,
+# so easyocr, opencv-python, pymongo, fastapi, uvicorn and requests are all
+# absent: OCR happens offline, metadata is read from JSONL, and the Streamlit UI
+# calls the search service in-process rather than over HTTP.
+#
+# streamlit is deliberately NOT pinned here - the Space installs the version
+# named by sdk_version in README.md, and pinning it in both places conflicts.
+
+# CPU wheels only. Without this, pip pulls ~2.5GB of CUDA builds onto a CPU Space.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Must stay on the same commit as the root requirements.txt: the committed
+# vectors came from this exact ViT-B/32 build, and a different one would make
+# every score meaningless without raising an error.
+clip @ git+https://github.com/openai/CLIP.git@dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1
+torch==2.9.1
+torchvision==0.24.1
+faiss-cpu==1.13.2
+numpy==2.2.6
+pillow==12.1.0
